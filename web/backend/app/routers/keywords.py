@@ -90,28 +90,6 @@ def delete_keyword(keyword_id: int, db: Session = Depends(get_db)):
     return {"status": "deleted"}
 
 
-@router.put("/{keyword_id}/noise")
-def toggle_noise(keyword_id: int, db: Session = Depends(get_db)):
-    kw = db.query(Keyword).get(keyword_id)
-    if not kw:
-        raise HTTPException(404, "Keyword not found")
-    kw.is_noise = not kw.is_noise
-    db.commit()
-    return {"status": "ok", "is_noise": kw.is_noise}
-
-
-@router.put("/{keyword_id}/category")
-def assign_category(keyword_id: int, body: KeywordCategoryAssign, db: Session = Depends(get_db)):
-    kw = db.query(Keyword).get(keyword_id)
-    if not kw:
-        raise HTTPException(404, "Keyword not found")
-    kw.category_id = body.category_id
-    db.commit()
-    return {"status": "ok"}
-
-
-# ── Bulk operations ───────────────────────────────────────────────────────────
-
 @router.put("/bulk/category")
 def bulk_assign_category(body: BulkKeywordCategoryAssign, db: Session = Depends(get_db)):
     db.query(Keyword).filter(Keyword.id.in_(body.keyword_ids)).update(
@@ -138,6 +116,26 @@ def bulk_update_tags(body: BulkKeywordTagUpdate, db: Session = Depends(get_db)):
 
     db.commit()
     return {"status": "ok", "updated": len(keywords)}
+
+
+@router.put("/{keyword_id}/noise")
+def toggle_noise(keyword_id: int, db: Session = Depends(get_db)):
+    kw = db.query(Keyword).get(keyword_id)
+    if not kw:
+        raise HTTPException(404, "Keyword not found")
+    kw.is_noise = not kw.is_noise
+    db.commit()
+    return {"status": "ok", "is_noise": kw.is_noise}
+
+
+@router.put("/{keyword_id}/category")
+def assign_category(keyword_id: int, body: KeywordCategoryAssign, db: Session = Depends(get_db)):
+    kw = db.query(Keyword).get(keyword_id)
+    if not kw:
+        raise HTTPException(404, "Keyword not found")
+    kw.category_id = body.category_id
+    db.commit()
+    return {"status": "ok"}
 
 
 # ── Apply keyword→category mappings to transactions ──────────────────────────

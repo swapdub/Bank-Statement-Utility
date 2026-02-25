@@ -6,6 +6,7 @@ import {
   Tag,
   X,
   EyeOff,
+  Eye,
   Zap,
   AlertTriangle,
 } from "lucide-react";
@@ -56,6 +57,9 @@ import type { Keyword, Category as CategoryType, Tag as TagType } from "@/lib/ty
 
 export default function CategorizePage() {
   const [keywords, setKeywords] = useState<Keyword[]>([]);
+  // allKeywords: loaded without filters, used for categories/noise tabs
+  const [allKeywords, setAllKeywords] = useState<Keyword[]>([]);
+  const [noiseKeywords, setNoiseKeywords] = useState<Keyword[]>([]);
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [tags, setTags] = useState<TagType[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -81,17 +85,21 @@ export default function CategorizePage() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [kws, cats, ts] = await Promise.all([
+      const [kws, allKws, noiseKws, cats, ts] = await Promise.all([
         getKeywords({
           min_frequency: minFreq,
           search: searchQuery || undefined,
           category_id: filterCategory !== "all" && filterCategory !== "uncategorized" ? Number(filterCategory) : undefined,
           uncategorized: filterCategory === "uncategorized" ? true : undefined,
         }),
+        getKeywords({ min_frequency: 1 }),           // all, for categories tab
+        getKeywords({ show_noise: true, min_frequency: 1 }).then(all => all.filter(k => k.is_noise)),
         getCategories(),
         getTags(),
       ]);
       setKeywords(kws);
+      setAllKeywords(allKws);
+      setNoiseKeywords(noiseKws);
       setCategories(cats);
       setTags(ts);
     } catch (err) {
@@ -122,24 +130,36 @@ export default function CategorizePage() {
   // Actions
   const handleBulkCategoryAssign = async (catId: number | null) => {
     if (selectedIds.size === 0) return toast.error("Select keywords first");
-    await bulkAssignCategory([...selectedIds], catId);
-    toast.success(`Assigned ${selectedIds.size} keywords`);
-    setSelectedIds(new Set());
-    refresh();
+    try {
+      await bulkAssignCategory([...selectedIds], catId);
+      toast.success(`Assigned ${selectedIds.size} keyword${selectedIds.size > 1 ? "s" : ""}`);
+      setSelectedIds(new Set());
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to assign category");
+    }
   };
 
   const handleBulkTagAdd = async (tagId: number) => {
     if (selectedIds.size === 0) return toast.error("Select keywords first");
-    await bulkUpdateTags([...selectedIds], [tagId]);
-    toast.success("Tags added");
-    refresh();
+    try {
+      await bulkUpdateTags([...selectedIds], [tagId]);
+      toast.success("Tags added");
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add tags");
+    }
   };
 
   const handleBulkTagRemove = async (tagId: number) => {
     if (selectedIds.size === 0) return toast.error("Select keywords first");
-    await bulkUpdateTags([...selectedIds], [], [tagId]);
-    toast.success("Tags removed");
-    refresh();
+    try {
+      await bulkUpdateTags([...selectedIds], [], [tagId]);
+      toast.success("Tags removed");
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove tags");
+    }
   };
 
   const handleApplyCategories = async () => {
@@ -208,6 +228,14 @@ export default function CategorizePage() {
           <TabsTrigger value="keywords">Keywords</TabsTrigger>
           <TabsTrigger value="categories">Category Buckets</TabsTrigger>
           <TabsTrigger value="tags">Tags</TabsTrigger>
+          <TabsTrigger value="noise">
+            Noise
+            {noiseKeywords.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-yellow-500/20 px-1.5 py-0.5 text-[10px] font-medium text-yellow-700 dark:text-yellow-300">
+                {noiseKeywords.length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         {/* ── Keywords Tab ───────────────────────────────────────────── */}
@@ -398,8 +426,8 @@ export default function CategorizePage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6"
-                            title="Mark as noise"
+                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                            title="Mark as noise (hide)"
                             onClick={() => handleToggleNoise(kw.id)}
                           >
                             <EyeOff className="h-3 w-3" />
@@ -464,20 +492,22 @@ export default function CategorizePage() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base">{cat.name}</CardTitle>
-                    {!cat.is_default && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 text-destructive"
-                        onClick={async () => {
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-destructive"
+                      onClick={async () => {
+                        try {
                           await deleteCategory(cat.id);
                           toast.success("Category deleted");
                           refresh();
-                        }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    )}
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Failed to delete");
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
                   </div>
                   <CardDescription>
                     {cat.keyword_count} keywords · {cat.transaction_count} transactions
@@ -485,7 +515,7 @@ export default function CategorizePage() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex flex-wrap gap-1">
-                    {keywords
+                    {allKeywords
                       .filter((kw) => kw.category_id === cat.id)
                       .slice(0, 10)
                       .map((kw) => (
@@ -494,9 +524,9 @@ export default function CategorizePage() {
                           <span className="ml-1 text-muted-foreground">({kw.frequency})</span>
                         </Badge>
                       ))}
-                    {(keywords.filter(kw => kw.category_id === cat.id).length > 10) && (
+                    {(allKeywords.filter(kw => kw.category_id === cat.id).length > 10) && (
                       <Badge variant="outline" className="text-xs">
-                        +{keywords.filter(kw => kw.category_id === cat.id).length - 10} more
+                        +{allKeywords.filter(kw => kw.category_id === cat.id).length - 10} more
                       </Badge>
                     )}
                   </div>
@@ -512,12 +542,12 @@ export default function CategorizePage() {
                   <CardTitle className="text-base">Uncategorized</CardTitle>
                 </div>
                 <CardDescription>
-                  {keywords.filter((k) => !k.category_id).length} keywords need categories
+                  {allKeywords.filter((k) => !k.category_id).length} keywords need categories
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-1">
-                  {keywords
+                  {allKeywords
                     .filter((kw) => !kw.category_id)
                     .slice(0, 10)
                     .map((kw) => (
@@ -595,6 +625,59 @@ export default function CategorizePage() {
               </p>
             )}
           </div>
+        </TabsContent>
+
+        {/* ── Noise Tab ─────────────────────────────────────────────── */}
+        <TabsContent value="noise" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              These keywords were marked as noise and hidden from the main list. Restore them to use them for categorization.
+            </p>
+          </div>
+          <Card>
+            <CardContent className="p-0">
+              <ScrollArea className="h-[60vh]">
+                <div className="divide-y">
+                  <div className="flex items-center gap-3 px-4 py-2 bg-muted/50 sticky top-0">
+                    <span className="flex-1 text-xs font-semibold text-muted-foreground uppercase">Keyword</span>
+                    <span className="w-16 text-xs font-semibold text-muted-foreground uppercase text-center">Freq</span>
+                    <span className="w-24" />
+                  </div>
+                  {noiseKeywords.length === 0 ? (
+                    <div className="py-10 text-center text-muted-foreground">
+                      No noise keywords. Keywords you hide will appear here.
+                    </div>
+                  ) : (
+                    noiseKeywords.map((kw) => (
+                      <div
+                        key={kw.id}
+                        className="flex items-center gap-3 px-4 py-2 hover:bg-muted/30"
+                      >
+                        <span className="flex-1 font-mono text-sm line-through text-muted-foreground">{kw.keyword}</span>
+                        <span className="w-16 text-center">
+                          <Badge variant="secondary">{kw.frequency}</Badge>
+                        </span>
+                        <span className="w-24 flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            onClick={async () => {
+                              await toggleKeywordNoise(kw.id);
+                              toast.success(`Restored "${kw.keyword}"`);
+                              refresh();
+                            }}
+                          >
+                            <Eye className="h-3 w-3" /> Restore
+                          </Button>
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

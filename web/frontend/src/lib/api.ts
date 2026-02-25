@@ -87,7 +87,8 @@ export async function createCategory(data: {
 }
 
 export async function deleteCategory(id: number): Promise<void> {
-  await fetch(`${BASE}/categories/${id}`, { method: "DELETE" });
+  const res = await fetch(`${BASE}/categories/${id}`, { method: "DELETE" });
+  await handleResponse(res);
 }
 
 // ── Tags ─────────────────────────────────────────────────────────────────────
@@ -110,7 +111,8 @@ export async function createTag(data: {
 }
 
 export async function deleteTag(id: number): Promise<void> {
-  await fetch(`${BASE}/tags/${id}`, { method: "DELETE" });
+  const res = await fetch(`${BASE}/tags/${id}`, { method: "DELETE" });
+  await handleResponse(res);
 }
 
 // ── Keywords ─────────────────────────────────────────────────────────────────
@@ -143,11 +145,13 @@ export async function createKeyword(keyword: string): Promise<Keyword> {
 }
 
 export async function deleteKeyword(id: number): Promise<void> {
-  await fetch(`${BASE}/keywords/${id}`, { method: "DELETE" });
+  const res = await fetch(`${BASE}/keywords/${id}`, { method: "DELETE" });
+  await handleResponse(res);
 }
 
-export async function toggleKeywordNoise(id: number): Promise<void> {
-  await fetch(`${BASE}/keywords/${id}/noise`, { method: "PUT" });
+export async function toggleKeywordNoise(id: number): Promise<{ is_noise: boolean }> {
+  const res = await fetch(`${BASE}/keywords/${id}/noise`, { method: "PUT" });
+  return handleResponse(res);
 }
 
 export async function assignKeywordCategory(
@@ -165,11 +169,12 @@ export async function bulkAssignCategory(
   keywordIds: number[],
   categoryId: number | null
 ): Promise<void> {
-  await fetch(`${BASE}/keywords/bulk/category`, {
+  const res = await fetch(`${BASE}/keywords/bulk/category`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ keyword_ids: keywordIds, category_id: categoryId }),
   });
+  await handleResponse(res);
 }
 
 export async function bulkUpdateTags(
@@ -177,7 +182,7 @@ export async function bulkUpdateTags(
   addTagIds: number[] = [],
   removeTagIds: number[] = []
 ): Promise<void> {
-  await fetch(`${BASE}/keywords/bulk/tags`, {
+  const res = await fetch(`${BASE}/keywords/bulk/tags`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -186,6 +191,7 @@ export async function bulkUpdateTags(
       remove_tag_ids: removeTagIds,
     }),
   });
+  await handleResponse(res);
 }
 
 export async function applyKeywordCategories(): Promise<{
