@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { Upload, FileUp, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Upload, FileUp, CheckCircle2, AlertCircle, Loader2, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
@@ -186,35 +186,49 @@ export default function UploadPage() {
       {/* Result */}
       {result && (
         <Card>
-          <CardContent className="flex items-center gap-4 pt-6">
-            {result.status === "success" ? (
-              <CheckCircle2 className="h-8 w-8 text-green-500" />
-            ) : (
-              <AlertCircle className="h-8 w-8 text-yellow-500" />
-            )}
-            <div className="flex-1">
-              <p className="font-semibold">{result.message}</p>
-              <p className="text-sm text-muted-foreground">
-                {result.bank_name} · {result.account_type} · {result.filename}
-              </p>
-              {result.error_details && result.error_details.length > 0 && (
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-xs text-yellow-600 dark:text-yellow-400">
-                    Show parse errors ({result.error_details.length} unique)
-                  </summary>
-                  <ul className="mt-1 space-y-0.5">
-                    {result.error_details.map((e, i) => (
-                      <li key={i} className="text-xs font-mono text-red-600 dark:text-red-400">
-                        {e}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-4">
+              {result.record_count === 0 && result.duplicate_count > 0 ? (
+                <Copy className="mt-0.5 h-8 w-8 shrink-0 text-yellow-500" />
+              ) : result.status === "success" ? (
+                <CheckCircle2 className="mt-0.5 h-8 w-8 shrink-0 text-green-500" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-8 w-8 shrink-0 text-yellow-500" />
+              )}
+              <div className="flex-1 space-y-1">
+                <p className="font-semibold">{result.message}</p>
+                <p className="text-sm text-muted-foreground">
+                  {result.bank_name} · {result.account_type} · {result.filename}
+                </p>
+                {result.duplicate_count > 0 && (
+                  <div className="flex items-center gap-1.5 text-sm text-yellow-600 dark:text-yellow-400">
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>
+                      {result.duplicate_count} duplicate transaction{result.duplicate_count !== 1 ? "s" : ""} from this file already existed and {result.duplicate_count !== 1 ? "were" : "was"} skipped.
+                    </span>
+                  </div>
+                )}
+                {result.error_details && result.error_details.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-yellow-600 dark:text-yellow-400">
+                      Show parse errors ({result.error_details.length} unique)
+                    </summary>
+                    <ul className="mt-1 space-y-0.5">
+                      {result.error_details.map((e, i) => (
+                        <li key={i} className="text-xs font-mono text-red-600 dark:text-red-400">
+                          {e}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+              {result.record_count > 0 && (
+                <Button variant="outline" onClick={() => navigate("/transactions")}>
+                  View Transactions →
+                </Button>
               )}
             </div>
-            <Button variant="outline" onClick={() => navigate("/transactions")}>
-              View Transactions →
-            </Button>
           </CardContent>
         </Card>
       )}

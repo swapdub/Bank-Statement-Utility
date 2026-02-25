@@ -17,6 +17,7 @@ export interface UploadResponse {
   account_type: string;
   record_count: number;
   failed_count: number;
+  duplicate_count: number;
   status: string;
   message: string;
   error_details?: string[] | null;

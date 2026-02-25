@@ -26,9 +26,16 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-import { getAnalyticsSummary } from "@/lib/api";
-import type { AnalyticsSummary } from "@/lib/types";
+import { getAnalyticsSummary, getCategories, getTransactionBanks } from "@/lib/api";
+import type { AnalyticsSummary, Category } from "@/lib/types";
 import { formatINR } from "@/lib/format";
 
 export default function AnalyticsPage() {
@@ -36,17 +43,29 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [bankFilter, setBankFilter] = useState("__all__");
+  const [categoryFilter, setCategoryFilter] = useState("__all__");
+  const [banks, setBanks] = useState<string[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  useEffect(() => {
+    Promise.all([getTransactionBanks(), getCategories()])
+      .then(([b, c]) => { setBanks(b); setCategories(c); })
+      .catch(console.error);
+  }, []);
 
   useEffect(() => {
     setLoading(true);
     getAnalyticsSummary({
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
+      bank_name: bankFilter !== "__all__" ? bankFilter : undefined,
+      category_id: categoryFilter !== "__all__" ? Number(categoryFilter) : undefined,
     })
       .then(setSummary)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [dateFrom, dateTo]);
+  }, [dateFrom, dateTo, bankFilter, categoryFilter]);
 
   if (loading) {
     return <div className="py-20 text-center text-muted-foreground">Loading analytics...</div>;
@@ -84,7 +103,7 @@ export default function AnalyticsPage() {
             {summary.transaction_count.toLocaleString()} transactions analyzed
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             type="date"
             className="w-40"
@@ -100,6 +119,37 @@ export default function AnalyticsPage() {
             onChange={(e) => setDateTo(e.target.value)}
             placeholder="To"
           />
+          {banks.length > 0 && (
+            <Select value={bankFilter} onValueChange={setBankFilter}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="All banks" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All banks</SelectItem>
+                {banks.map((b) => (
+                  <SelectItem key={b} value={b}>{b}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {categories.length > 0 && (
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-[170px]">
+                <SelectValue placeholder="All categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All categories</SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: c.color || "#ccc" }} />
+                      {c.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
       </div>
 

@@ -9,6 +9,8 @@ import {
   Eye,
   Zap,
   AlertTriangle,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -52,6 +54,8 @@ import {
   applyKeywordCategories,
   deleteCategory,
   deleteTag,
+  updateCategory,
+  updateTag,
 } from "@/lib/api";
 import type { Keyword, Category as CategoryType, Tag as TagType } from "@/lib/types";
 
@@ -78,6 +82,15 @@ export default function CategorizePage() {
   const [newTagColor, setNewTagColor] = useState("#06b6d4");
 
   const [newKwOpen, setNewKwOpen] = useState(false);
+
+  // Pending apply state
+  const [pendingApply, setPendingApply] = useState(false);
+
+  // Inline editing state for categories/tags
+  const [editingCatId, setEditingCatId] = useState<number | null>(null);
+  const [editingCatName, setEditingCatName] = useState("");
+  const [editingTagId, setEditingTagId] = useState<number | null>(null);
+  const [editingTagName, setEditingTagName] = useState("");
   const [newKwValue, setNewKwValue] = useState("");
 
   const [tagAssignOpen, setTagAssignOpen] = useState(false);
@@ -134,6 +147,7 @@ export default function CategorizePage() {
       await bulkAssignCategory([...selectedIds], catId);
       toast.success(`Assigned ${selectedIds.size} keyword${selectedIds.size > 1 ? "s" : ""}`);
       setSelectedIds(new Set());
+      setPendingApply(true);
       refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to assign category");
@@ -165,6 +179,23 @@ export default function CategorizePage() {
   const handleApplyCategories = async () => {
     const res = await applyKeywordCategories();
     toast.success(`Updated ${res.updated} transactions${res.conflicts > 0 ? ` (${res.conflicts} conflicts resolved)` : ""}`);
+    setPendingApply(false);
+    refresh();
+  };
+
+  const handleSaveCatName = async (id: number) => {
+    if (!editingCatName.trim()) return;
+    await updateCategory(id, { name: editingCatName.trim() });
+    setEditingCatId(null);
+    toast.success("Category renamed");
+    refresh();
+  };
+
+  const handleSaveTagName = async (id: number) => {
+    if (!editingTagName.trim()) return;
+    await updateTag(id, { name: editingTagName.trim() });
+    setEditingTagId(null);
+    toast.success("Tag renamed");
     refresh();
   };
 
@@ -222,6 +253,20 @@ export default function CategorizePage() {
           Apply Categories to Transactions
         </Button>
       </div>
+
+      {/* Pending-apply banner */}
+      {pendingApply && (
+        <div className="flex items-center justify-between rounded-lg border border-yellow-400/50 bg-yellow-50 px-4 py-3 dark:bg-yellow-950/30">
+          <div className="flex items-center gap-2 text-sm text-yellow-800 dark:text-yellow-300">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>Keywords were assigned to categories — click <strong>Apply</strong> to update transactions.</span>
+          </div>
+          <Button size="sm" onClick={handleApplyCategories} className="gap-1.5 bg-yellow-500 text-white hover:bg-yellow-600 dark:bg-yellow-600 dark:hover:bg-yellow-500">
+            <Zap className="h-3.5 w-3.5" />
+            Apply
+          </Button>
+        </div>
+      )}
 
       <Tabs defaultValue="keywords" className="space-y-4">
         <TabsList>
@@ -487,11 +532,40 @@ export default function CategorizePage() {
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {categories.map((cat) => (
-              <Card key={cat.id} className="relative overflow-hidden">
+              <Card key={cat.id} className="relative overflow-hidden group">
                 <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: cat.color || "#ccc" }} />
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">{cat.name}</CardTitle>
+                    {editingCatId === cat.id ? (
+                      <div className="flex items-center gap-1 flex-1 mr-2">
+                        <Input
+                          autoFocus
+                          className="h-7 text-sm"
+                          value={editingCatName}
+                          onChange={(e) => setEditingCatName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveCatName(cat.id);
+                            if (e.key === "Escape") setEditingCatId(null);
+                          }}
+                          onBlur={() => handleSaveCatName(cat.id)}
+                        />
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleSaveCatName(cat.id)}>
+                          <Check className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <CardTitle className="text-base">{cat.name}</CardTitle>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                          onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); }}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -597,11 +671,40 @@ export default function CategorizePage() {
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {tags.map((tag) => (
-              <Card key={tag.id}>
+              <Card key={tag.id} className="group">
                 <CardContent className="flex items-center justify-between pt-4">
-                  <div className="flex items-center gap-2">
-                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: tag.color || "#ccc" }} />
-                    <span className="font-medium">{tag.name}</span>
+                  <div className="flex items-center gap-2 flex-1">
+                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: tag.color || "#ccc" }} />
+                    {editingTagId === tag.id ? (
+                      <div className="flex items-center gap-1 flex-1">
+                        <Input
+                          autoFocus
+                          className="h-7 text-sm"
+                          value={editingTagName}
+                          onChange={(e) => setEditingTagName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveTagName(tag.id);
+                            if (e.key === "Escape") setEditingTagId(null);
+                          }}
+                          onBlur={() => handleSaveTagName(tag.id)}
+                        />
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleSaveTagName(tag.id)}>
+                          <Check className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <span className="font-medium">{tag.name}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                          onClick={() => { setEditingTagId(tag.id); setEditingTagName(tag.name); }}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                   <Button
                     variant="ghost"

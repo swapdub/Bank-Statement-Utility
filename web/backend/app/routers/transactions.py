@@ -10,12 +10,19 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Transaction, Category
-from ..schemas import TransactionOut, TransactionListResponse
+from ..schemas import TransactionOut, TransactionListResponse, BulkTransactionCategoryAssign
 
 from datetime import date
 from typing import Optional
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
+
+
+@router.get("/banks")
+def get_banks(db: Session = Depends(get_db)):
+    """Return distinct bank names present in the transactions table."""
+    rows = db.query(Transaction.bank_name).distinct().filter(Transaction.bank_name.isnot(None)).all()
+    return [r[0] for r in rows if r[0]]
 
 
 def _build_query(
@@ -119,6 +126,19 @@ def list_transactions(
         page=page,
         page_size=page_size,
     )
+
+
+@router.put("/bulk/category")
+def bulk_set_transaction_category(
+    body: BulkTransactionCategoryAssign,
+    db: Session = Depends(get_db),
+):
+    """Assign a category to multiple transactions at once."""
+    db.query(Transaction).filter(Transaction.id.in_(body.transaction_ids)).update(
+        {"category_id": body.category_id}, synchronize_session="fetch"
+    )
+    db.commit()
+    return {"status": "ok", "updated": len(body.transaction_ids)}
 
 
 @router.put("/{transaction_id}/category")

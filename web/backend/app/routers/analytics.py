@@ -25,6 +25,8 @@ def get_analytics_summary(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     bank_name: Optional[str] = Query(None),
+    category_id: Optional[int] = Query(None),
+    uncategorized: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
 ):
     """Return a full analytics summary for the dashboard."""
@@ -37,6 +39,10 @@ def get_analytics_summary(
         base = base.filter(Transaction.transaction_date <= date_to)
     if bank_name:
         base = base.filter(Transaction.bank_name == bank_name.upper())
+    if uncategorized:
+        base = base.filter(Transaction.category_id.is_(None))
+    elif category_id is not None:
+        base = base.filter(Transaction.category_id == category_id)
 
     # ── Totals ────────────────────────────────────────────────────────────
     totals = base.with_entities(

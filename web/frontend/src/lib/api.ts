@@ -61,9 +61,27 @@ export async function setTransactionCategory(
   categoryId: number | null
 ): Promise<void> {
   const params = categoryId !== null ? `?category_id=${categoryId}` : "";
-  await fetch(`${BASE}/transactions/${transactionId}/category${params}`, {
+  const res = await fetch(`${BASE}/transactions/${transactionId}/category${params}`, {
     method: "PUT",
   });
+  await handleResponse(res);
+}
+
+export async function bulkAssignTransactionCategory(
+  transactionIds: number[],
+  categoryId: number | null
+): Promise<void> {
+  const res = await fetch(`${BASE}/transactions/bulk/category`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transaction_ids: transactionIds, category_id: categoryId }),
+  });
+  await handleResponse(res);
+}
+
+export async function getTransactionBanks(): Promise<string[]> {
+  const res = await fetch(`${BASE}/transactions/banks`);
+  return handleResponse(res);
 }
 
 // ── Categories ───────────────────────────────────────────────────────────────
@@ -91,6 +109,18 @@ export async function deleteCategory(id: number): Promise<void> {
   await handleResponse(res);
 }
 
+export async function updateCategory(
+  id: number,
+  data: { name?: string; color?: string }
+): Promise<Category> {
+  const res = await fetch(`${BASE}/categories/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(res);
+}
+
 // ── Tags ─────────────────────────────────────────────────────────────────────
 
 export async function getTags(): Promise<Tag[]> {
@@ -113,6 +143,18 @@ export async function createTag(data: {
 export async function deleteTag(id: number): Promise<void> {
   const res = await fetch(`${BASE}/tags/${id}`, { method: "DELETE" });
   await handleResponse(res);
+}
+
+export async function updateTag(
+  id: number,
+  data: { name?: string; color?: string }
+): Promise<Tag> {
+  const res = await fetch(`${BASE}/tags/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(res);
 }
 
 // ── Keywords ─────────────────────────────────────────────────────────────────
@@ -210,6 +252,8 @@ export async function getAnalyticsSummary(params?: {
   date_from?: string;
   date_to?: string;
   bank_name?: string;
+  category_id?: number;
+  uncategorized?: boolean;
 }): Promise<AnalyticsSummary> {
   const urlParams = new URLSearchParams();
   if (params) {

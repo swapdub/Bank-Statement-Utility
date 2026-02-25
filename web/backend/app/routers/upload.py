@@ -60,12 +60,51 @@ def upload_statement(
     if result["error"]:
         raise HTTPException(400, result["error"])
 
+    # ── Duplicate detection ───────────────────────────────────────────────────
+    # Build a set of fingerprints from existing transactions for this bank
+    existing_rows = db.query(
+        Transaction.bank_name,
+        Transaction.account_type,
+        Transaction.transaction_date,
+        Transaction.description,
+        Transaction.debit_amount,
+        Transaction.credit_amount,
+    ).filter(
+        Transaction.bank_name == bank_name.upper(),
+        Transaction.account_type == account_type.capitalize(),
+    ).all()
+
+    existing_fps: set[tuple] = {
+        (r.bank_name, r.account_type, str(r.transaction_date), r.description, r.debit_amount, r.credit_amount)
+        for r in existing_rows
+    }
+
+    def _fp(rec: dict) -> tuple:
+        return (
+            rec["bank_name"].upper(),
+            rec["account_type"].capitalize(),
+            str(rec["transaction_date"]),
+            rec["description"],
+            rec["debit_amount"],
+            rec["credit_amount"],
+        )
+
+    new_records: list[dict] = []
+    duplicate_count = 0
+    for rec in result["records"]:
+        fp = _fp(rec)
+        if fp in existing_fps:
+            duplicate_count += 1
+        else:
+            new_records.append(rec)
+            existing_fps.add(fp)  # prevent intra-file duplicates too
+
     # Create upload session
     session = UploadSession(
         filename=file.filename or "unknown",
         bank_name=bank_name.upper(),
         account_type=account_type.capitalize(),
-        record_count=len(result["records"]),
+        record_count=len(new_records),
         status="success" if not result["failed_records"] else "partial",
         error_message="; ".join(result["failed_records"][:5]) if result["failed_records"] else None,
     )
@@ -73,7 +112,7 @@ def upload_statement(
     db.flush()  # get session.id
 
     # Insert transactions
-    for rec in result["records"]:
+    for rec in new_records:
         txn = Transaction(
             upload_session_id=session.id,
             bank_name=rec["bank_name"],
@@ -91,7 +130,7 @@ def upload_statement(
     db.commit()
 
     # Extract keywords from the new transactions and merge into DB
-    descriptions = [r["description"] for r in result["records"]]
+    descriptions = [r["description"] for r in new_records]
     new_keywords = extract_keywords(descriptions, min_frequency=1)
 
     for kw_data in new_keywords:
@@ -110,16 +149,24 @@ def upload_statement(
     # Dedupe error messages for the response
     unique_errors = list(dict.fromkeys(result["failed_records"]))[:5]
 
+    # Build human-readable message
+    msg_parts = [f"Imported {len(new_records)} transaction{'s' if len(new_records) != 1 else ''}"]
+    if duplicate_count:
+        msg_parts.append(f"{duplicate_count} duplicate{'s' if duplicate_count != 1 else ''} skipped")
+    if result["failed_records"]:
+        msg_parts.append(f"{len(result['failed_records'])} failed to parse")
+    message = msg_parts[0] + (" (" + ", ".join(msg_parts[1:]) + ")" if msg_parts[1:] else "")
+
     return UploadResponse(
         session_id=session.id,
         filename=session.filename,
         bank_name=session.bank_name,
         account_type=session.account_type,
-        record_count=len(result["records"]),
+        record_count=len(new_records),
         failed_count=len(result["failed_records"]),
+        duplicate_count=duplicate_count,
         status=session.status,
-        message=f"Parsed {len(result['records'])} transactions"
-                + (f" ({len(result['failed_records'])} failed)" if result["failed_records"] else ""),
+        message=message,
         error_details=unique_errors if unique_errors else None,
     )
 

@@ -16,6 +16,7 @@ class UploadResponse(BaseModel):
     account_type: str
     record_count: int
     failed_count: int
+    duplicate_count: int = 0
     status: str
     message: str
     error_details: Optional[list[str]] = None
@@ -103,6 +104,10 @@ class TagOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TagUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+
 # ── Keyword ───────────────────────────────────────────────────────────────────
 class KeywordOut(BaseModel):
     id: int
@@ -123,6 +128,11 @@ class KeywordCreate(BaseModel):
 
 class KeywordCategoryAssign(BaseModel):
     category_id: Optional[int] = None  # None to unassign
+
+
+class BulkTransactionCategoryAssign(BaseModel):
+    transaction_ids: list[int]
+    category_id: Optional[int] = None
 
 
 class BulkKeywordTagUpdate(BaseModel):
