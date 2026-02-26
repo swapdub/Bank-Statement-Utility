@@ -19,6 +19,14 @@ keyword_tags = Table(
     Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
 )
 
+# ── Association table: transaction ↔ tag (M:M) ───────────────────────────────
+transaction_tags = Table(
+    "transaction_tags",
+    Base.metadata,
+    Column("transaction_id", Integer, ForeignKey("transactions.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 class UploadSession(Base):
     """Tracks each file upload."""
@@ -58,6 +66,7 @@ class Transaction(Base):
 
     upload_session = relationship("UploadSession", back_populates="transactions")
     category = relationship("Category", back_populates="transactions")
+    tags = relationship("Tag", secondary="transaction_tags", back_populates="transactions")
 
     __table_args__ = (
         Index("idx_txn_date", "transaction_date"),
@@ -91,6 +100,7 @@ class Tag(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     keywords = relationship("Keyword", secondary=keyword_tags, back_populates="tags")
+    transactions = relationship("Transaction", secondary="transaction_tags", back_populates="tags")
 
 
 class Keyword(Base):

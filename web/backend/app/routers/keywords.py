@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Keyword, Tag, Transaction, keyword_tags
+from ..models import Keyword, Tag, Transaction, keyword_tags, transaction_tags
 from ..schemas import (
     KeywordOut, KeywordCreate, KeywordCategoryAssign,
     BulkKeywordTagUpdate, BulkKeywordCategoryAssign, TagOut,
@@ -143,31 +143,31 @@ def assign_category(keyword_id: int, body: KeywordCategoryAssign, db: Session = 
 @router.post("/apply-categories")
 def apply_keyword_categories(db: Session = Depends(get_db)):
     """
-    Re-scan all transactions and assign categories based on keyword mappings.
-    Returns count of transactions updated.
-
-    Logic:
-    - For each transaction, find which categorized keywords match its description.
-    - If exactly one category matches → assign it.
-    - If multiple categories match → flag as conflict (leave unchanged or use highest-frequency keyword's category).
-    - If no keywords match → leave as uncategorized.
+    Re-scan all transactions, assign categories, and inherit tags from matched keywords.
     """
-    # Get all keywords that have a category assigned
-    categorized_keywords = (
+    # Get all non-noise keywords that have a category
+    all_kws = (
         db.query(Keyword)
-        .filter(Keyword.category_id.isnot(None), Keyword.is_noise == False)
+        .filter(Keyword.is_noise == False)
         .all()
     )
+    # Also include keywords with tags but no category
+    kw_with_tags = [kw for kw in all_kws if kw.tags]
+    categorized_keywords = [kw for kw in all_kws if kw.category_id is not None]
 
-    if not categorized_keywords:
+    kw_set: set[str] = {kw.keyword for kw in all_kws if kw.category_id is not None or kw.tags}
+    # Maps: keyword_str -> (category_id | None, frequency, set[tag_ids])
+    kw_meta: dict[str, tuple[int | None, int, set[int]]] = {
+        kw.keyword: (kw.category_id, kw.frequency, {t.id for t in kw.tags})
+        for kw in all_kws
+        if kw.category_id is not None or kw.tags
+    }
+
+    if not kw_set:
         return {"status": "ok", "updated": 0, "conflicts": 0}
 
-    # Build a lookup: keyword_str → (category_id, frequency)
-    kw_map: dict[str, tuple[int, int]] = {}
-    kw_set: set[str] = set()
-    for kw in categorized_keywords:
-        kw_map[kw.keyword] = (kw.category_id, kw.frequency)
-        kw_set.add(kw.keyword)
+    # Pre-load all Tag objects for efficient lookup
+    tag_lookup: dict[int, Tag] = {t.id: t for t in db.query(Tag).all()}
 
     transactions = db.query(Transaction).all()
     updated = 0
@@ -178,12 +178,16 @@ def apply_keyword_categories(db: Session = Depends(get_db)):
         if not matched:
             continue
 
-        # Collect distinct categories from matched keywords
+        # ── Category assignment ───────────────────────────────────────────
         categories: dict[int, int] = {}  # category_id → max frequency
+        inherited_tag_ids: set[int] = set()
+
         for m in matched:
-            cat_id, freq = kw_map[m]
-            if cat_id not in categories or freq > categories[cat_id]:
-                categories[cat_id] = freq
+            cat_id, freq, tag_ids = kw_meta[m]
+            inherited_tag_ids |= tag_ids
+            if cat_id is not None:
+                if cat_id not in categories or freq > categories[cat_id]:
+                    categories[cat_id] = freq
 
         if len(categories) == 1:
             cat_id = next(iter(categories))
@@ -191,12 +195,17 @@ def apply_keyword_categories(db: Session = Depends(get_db)):
                 txn.category_id = cat_id
                 updated += 1
         elif len(categories) > 1:
-            # Conflict: pick the category whose keyword has the highest frequency
             best_cat = max(categories, key=categories.get)
             if txn.category_id != best_cat:
                 txn.category_id = best_cat
                 updated += 1
             conflicts += 1
+
+        # ── Tag inheritance (additive — never removes manual tags) ────────
+        existing_tag_ids = {t.id for t in txn.tags}
+        for tid in inherited_tag_ids - existing_tag_ids:
+            if tid in tag_lookup:
+                txn.tags.append(tag_lookup[tid])
 
     db.commit()
     return {"status": "ok", "updated": updated, "conflicts": conflicts}

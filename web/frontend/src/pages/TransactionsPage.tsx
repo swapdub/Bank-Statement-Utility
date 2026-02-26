@@ -8,7 +8,9 @@ import {
   X,
   Tag,
   CheckSquare,
+  Info,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,26 +43,42 @@ import {
   getTransactions,
   getCategories,
   getSupportedFormats,
+  getTags,
   bulkAssignTransactionCategory,
   setTransactionCategory,
+  updateTransactionTags,
+  bulkUpdateTransactionTags,
 } from "@/lib/api";
-import type { Transaction, TransactionFilters, Category, BankInfo } from "@/lib/types";
+import type { Transaction, TransactionFilters, Category, BankInfo, Tag as TagType } from "@/lib/types";
 import { formatINR, formatDate } from "@/lib/format";
+import { useTransactionFilters } from "@/lib/filterContext";
 
 export default function TransactionsPage() {
+  const navigate = useNavigate();
+  const { filters: ctxFilters, set: setCtxFilters } = useTransactionFilters();
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
   const [banks, setBanks] = useState<BankInfo[]>([]);
+  const [allTags, setAllTags] = useState<TagType[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkTagOpen, setBulkTagOpen] = useState(false);
 
-  const [filters, setFilters] = useState<TransactionFilters>({
+  const [filters, setFilters] = useState<TransactionFilters>(() => ({
     page: 1,
     page_size: 50,
     sort_by: "transaction_date",
     sort_order: "desc",
-  });
+    // Restore from context on mount
+    search: ctxFilters.search || undefined,
+    bank_name: ctxFilters.bankName || undefined,
+    category_id: ctxFilters.categoryId ?? undefined,
+    date_from: ctxFilters.dateFrom || undefined,
+    date_to: ctxFilters.dateTo || undefined,
+    tag_ids: ctxFilters.tagIds.length ? ctxFilters.tagIds.join(",") : undefined,
+  }));
 
   const [searchInput, setSearchInput] = useState("");
   const [showFilters, setShowFilters] = useState(false);
@@ -68,6 +86,7 @@ export default function TransactionsPage() {
   useEffect(() => {
     getCategories().then(setCategories).catch(console.error);
     getSupportedFormats().then((d) => setBanks(d.banks)).catch(console.error);
+    getTags().then(setAllTags).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -93,6 +112,7 @@ export default function TransactionsPage() {
   const clearFilters = () => {
     setSearchInput("");
     setFilters({ page: 1, page_size: 50, sort_by: "transaction_date", sort_order: "desc" });
+    setCtxFilters({ fromAnalytics: false });
   };
 
   const toggleSort = (col: string) =>
@@ -131,6 +151,67 @@ export default function TransactionsPage() {
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(transactions.map((t) => t.id)));
+    }
+  };
+
+  // ── Inline single-row tag toggle ───────────────────────────────────────────
+  const handleTagToggle = async (txn: Transaction, tagId: number) => {
+    const currentTagIds = txn.tags.map((t) => t.id);
+    const hasTag = currentTagIds.includes(tagId);
+    const tag = allTags.find((t) => t.id === tagId);
+    try {
+      await updateTransactionTags(
+        txn.id,
+        hasTag ? [] : [tagId],
+        hasTag ? [tagId] : []
+      );
+      setTransactions((prev) =>
+        prev.map((t) => {
+          if (t.id !== txn.id) return t;
+          const newTags = hasTag
+            ? t.tags.filter((tg) => tg.id !== tagId)
+            : tag ? [...t.tags, tag] : t.tags;
+          return { ...t, tags: newTags };
+        })
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update tag");
+    }
+  };
+
+  // ── Bulk tag assign ──────────────────────────────────────────────────────
+  const handleBulkTagAdd = async (tagId: number) => {
+    try {
+      await bulkUpdateTransactionTags([...selectedIds], [tagId]);
+      const tag = allTags.find((t) => t.id === tagId);
+      if (tag) {
+        setTransactions((prev) =>
+          prev.map((t) =>
+            selectedIds.has(t.id) && !t.tags.find((tg) => tg.id === tagId)
+              ? { ...t, tags: [...t.tags, tag] }
+              : t
+          )
+        );
+      }
+      toast.success(`Tag added to ${selectedIds.size} transaction${selectedIds.size > 1 ? "s" : ""}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add tag");
+    }
+  };
+
+  const handleBulkTagRemove = async (tagId: number) => {
+    try {
+      await bulkUpdateTransactionTags([...selectedIds], [], [tagId]);
+      setTransactions((prev) =>
+        prev.map((t) =>
+          selectedIds.has(t.id)
+            ? { ...t, tags: t.tags.filter((tg) => tg.id !== tagId) }
+            : t
+        )
+      );
+      toast.success(`Tag removed from ${selectedIds.size} transaction${selectedIds.size > 1 ? "s" : ""}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove tag");
     }
   };
 
@@ -190,6 +271,20 @@ export default function TransactionsPage() {
           </p>
         </div>
       </div>
+
+      {/* Analytics carry-over banner */}
+      {ctxFilters.fromAnalytics && (
+        <div className="flex items-center justify-between rounded-lg border border-blue-400/40 bg-blue-50 px-4 py-2.5 dark:bg-blue-950/30">
+          <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-300">
+            <Info className="h-4 w-4 shrink-0" />
+            <span>Filtered from Analytics. Showing a subset of transactions matching your selection.</span>
+          </div>
+          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => {
+            clearFilters();
+            navigate("/analytics");
+          }}>← Back to Analytics</Button>
+        </div>
+      )}
 
       {/* Search + Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
@@ -331,16 +426,17 @@ export default function TransactionsPage() {
                 </TableHead>
                 <TableHead className="text-right">Balance</TableHead>
                 <TableHead>Category</TableHead>
+                <TableHead>Tags</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Loading...</TableCell>
+                  <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">Loading...</TableCell>
                 </TableRow>
               ) : transactions.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
                     No transactions found. Upload a statement to get started.
                   </TableCell>
                 </TableRow>
@@ -413,6 +509,56 @@ export default function TransactionsPage() {
                         </PopoverContent>
                       </Popover>
                     </TableCell>
+                    {/* Tags cell */}
+                    <TableCell>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <div className="flex min-w-[60px] cursor-pointer flex-wrap gap-1">
+                            {txn.tags && txn.tags.length > 0 ? (
+                              txn.tags.map((tg) => (
+                                <Badge
+                                  key={tg.id}
+                                  className="border text-xs"
+                                  style={{
+                                    backgroundColor: (tg.color ?? "#6366f1") + "22",
+                                    borderColor: tg.color ?? "#6366f1",
+                                    color: tg.color ?? "#6366f1",
+                                  }}
+                                >
+                                  {tg.name}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-xs text-muted-foreground hover:text-foreground">+ tag</span>
+                            )}
+                          </div>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-48 p-1" align="start">
+                          <div className="flex flex-col gap-0.5">
+                            {allTags.length === 0 && (
+                              <p className="px-2 py-1.5 text-xs text-muted-foreground">No tags yet. Create tags in Settings.</p>
+                            )}
+                            {allTags.map((tg) => {
+                              const active = txn.tags?.some((t) => t.id === tg.id);
+                              return (
+                                <button
+                                  key={tg.id}
+                                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                                  onClick={() => handleTagToggle(txn, tg.id)}
+                                >
+                                  <span
+                                    className="inline-block h-2 w-2 shrink-0 rounded-full ring-1"
+                                    style={{ backgroundColor: active ? (tg.color ?? "#6366f1") : "transparent", outline: `2px solid ${tg.color ?? "#6366f1"}`, outlineOffset: "1px" }}
+                                  />
+                                  <span className={active ? "font-medium" : ""}>{tg.name}</span>
+                                  {active && <span className="ml-auto text-xs text-muted-foreground">✓</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -470,6 +616,42 @@ export default function TransactionsPage() {
                 ))}
               </SelectContent>
             </Select>
+            {/* Bulk tag popover */}
+            <Popover open={bulkTagOpen} onOpenChange={setBulkTagOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 text-xs">
+                  <Tag className="mr-1 h-3 w-3" /> Tags
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-2" align="end">
+                <p className="mb-1 px-1 text-xs font-semibold text-muted-foreground">Add tag to selected</p>
+                {allTags.map((tg) => (
+                  <button
+                    key={tg.id}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    onClick={() => { handleBulkTagAdd(tg.id); setBulkTagOpen(false); }}
+                  >
+                    <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: tg.color ?? "#6366f1" }} />
+                    {tg.name}
+                  </button>
+                ))}
+                {allTags.length === 0 && (
+                  <p className="px-2 py-1 text-xs text-muted-foreground">No tags yet.</p>
+                )}
+                <div className="my-1 border-t" />
+                <p className="mb-1 px-1 text-xs font-semibold text-muted-foreground">Remove tag from selected</p>
+                {allTags.map((tg) => (
+                  <button
+                    key={tg.id}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted text-muted-foreground"
+                    onClick={() => { handleBulkTagRemove(tg.id); setBulkTagOpen(false); }}
+                  >
+                    <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: tg.color ?? "#6366f1" }} />
+                    <span className="line-through">{tg.name}</span>
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
             <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setSelectedIds(new Set())}>
               <X className="mr-1 h-3 w-3" /> Clear
             </Button>

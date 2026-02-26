@@ -79,6 +79,32 @@ export async function bulkAssignTransactionCategory(
   await handleResponse(res);
 }
 
+export async function updateTransactionTags(
+  transactionId: number,
+  addTagIds: number[],
+  removeTagIds: number[] = []
+): Promise<Tag[]> {
+  const res = await fetch(`${BASE}/transactions/${transactionId}/tags`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transaction_ids: [transactionId], add_tag_ids: addTagIds, remove_tag_ids: removeTagIds }),
+  });
+  return handleResponse(res);
+}
+
+export async function bulkUpdateTransactionTags(
+  transactionIds: number[],
+  addTagIds: number[],
+  removeTagIds: number[] = []
+): Promise<void> {
+  const res = await fetch(`${BASE}/transactions/bulk/tags`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transaction_ids: transactionIds, add_tag_ids: addTagIds, remove_tag_ids: removeTagIds }),
+  });
+  await handleResponse(res);
+}
+
 export async function getTransactionBanks(): Promise<string[]> {
   const res = await fetch(`${BASE}/transactions/banks`);
   return handleResponse(res);
@@ -252,8 +278,8 @@ export async function getAnalyticsSummary(params?: {
   date_from?: string;
   date_to?: string;
   bank_name?: string;
-  category_id?: number;
-  uncategorized?: boolean;
+  category_ids?: string;  // comma-separated
+  tag_ids?: string;       // comma-separated
 }): Promise<AnalyticsSummary> {
   const urlParams = new URLSearchParams();
   if (params) {

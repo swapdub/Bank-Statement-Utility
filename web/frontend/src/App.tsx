@@ -5,20 +5,23 @@ import TransactionsPage from "@/pages/TransactionsPage";
 import CategorizePage from "@/pages/CategorizePage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import { ThemeProvider } from "@/lib/theme";
+import { FilterProvider } from "@/lib/filterContext";
 
 function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<UploadPage />} />
-            <Route path="/transactions" element={<TransactionsPage />} />
-            <Route path="/categorize" element={<CategorizePage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <FilterProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/" element={<UploadPage />} />
+              <Route path="/transactions" element={<TransactionsPage />} />
+              <Route path="/categorize" element={<CategorizePage />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </FilterProvider>
     </ThemeProvider>
   );
 }

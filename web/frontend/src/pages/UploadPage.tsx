@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { Upload, FileUp, CheckCircle2, AlertCircle, Loader2, Copy } from "lucide-react";
+import { Upload, CheckCircle2, AlertCircle, Loader2, Copy, X as XIcon, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
@@ -18,9 +18,16 @@ export default function UploadPage() {
   const [banks, setBanks] = useState<BankInfo[]>([]);
   const [selectedBank, setSelectedBank] = useState("");
   const [selectedAccountType, setSelectedAccountType] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<UploadResponse | null>(null);
+  const [uploadingIndex, setUploadingIndex] = useState(-1);
+
+  interface FileResult {
+    filename: string;
+    response: UploadResponse | null;
+    error: string | null;
+  }
+  const [results, setResults] = useState<FileResult[]>([]);
 
   useEffect(() => {
     getSupportedFormats().then((data) => setBanks(data.banks)).catch(console.error);
@@ -30,34 +37,52 @@ export default function UploadPage() {
 
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length > 0) {
-      setFile(accepted[0]);
-      setResult(null);
+      setFiles((prev) => {
+        const existingNames = new Set(prev.map((f) => f.name));
+        const newOnes = accepted.filter((f) => !existingNames.has(f.name));
+        return [...prev, ...newOnes];
+      });
+      setResults([]);
     }
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    multiple: false,
+    multiple: true,
   });
 
   const handleUpload = async () => {
-    if (!file || !selectedBank || !selectedAccountType) {
-      toast.error("Please select a bank, account type, and file.");
+    if (files.length === 0 || !selectedBank || !selectedAccountType) {
+      toast.error("Please select a bank, account type, and at least one file.");
       return;
     }
 
     setUploading(true);
-    setResult(null);
-    try {
-      const res = await uploadStatement(file, selectedBank, selectedAccountType);
-      setResult(res);
-      toast.success(res.message);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Upload failed";
-      toast.error(msg);
-    } finally {
-      setUploading(false);
+    setResults([]);
+    const collected: typeof results = [];
+
+    for (let i = 0; i < files.length; i++) {
+      setUploadingIndex(i);
+      try {
+        const res = await uploadStatement(files[i], selectedBank, selectedAccountType);
+        collected.push({ filename: files[i].name, response: res, error: null });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Upload failed";
+        collected.push({ filename: files[i].name, response: null, error: msg });
+      }
+      setResults([...collected]);
     }
+
+    setUploadingIndex(-1);
+    setUploading(false);
+
+    const ok = collected.filter((r) => r.response && r.response.record_count > 0).length;
+    const dup = collected.filter((r) => r.response && r.response.record_count === 0 && r.response.duplicate_count > 0).length;
+    const errs = collected.filter((r) => r.error).length;
+
+    if (ok > 0) toast.success(`${ok} file${ok === 1 ? "" : "s"} uploaded successfully!`);
+    if (dup > 0) toast.warning(`${dup} file${dup === 1 ? "" : "s"} had only duplicates.`);
+    if (errs > 0) toast.error(`${errs} file${errs === 1 ? "" : "s"} failed to upload.`);
   };
 
   return (
@@ -128,54 +153,73 @@ export default function UploadPage() {
         <Card>
           <CardHeader>
             <CardTitle>Upload File</CardTitle>
-            <CardDescription>Drag and drop or click to select</CardDescription>
+            <CardDescription>Drag and drop or click to select — multiple files supported</CardDescription>
           </CardHeader>
           <CardContent>
             <div
               {...getRootProps()}
-              className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-10 transition-colors cursor-pointer ${
+              className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors cursor-pointer ${
                 isDragActive
                   ? "border-primary bg-primary/5"
                   : "border-muted-foreground/25 hover:border-primary/50"
               }`}
             >
               <input {...getInputProps()} />
-              {file ? (
-                <>
-                  <FileUp className="mb-3 h-10 w-10 text-primary" />
-                  <p className="font-medium">{file.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {(file.size / 1024).toFixed(1)} KB — Click or drop to replace
-                  </p>
-                </>
-              ) : (
-                <>
-                  <Upload className="mb-3 h-10 w-10 text-muted-foreground" />
-                  <p className="font-medium">
-                    {isDragActive ? "Drop file here..." : "Drop your statement file here"}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    or click to browse
-                  </p>
-                </>
-              )}
+              <Upload className="mb-2 h-8 w-8 text-muted-foreground" />
+              <p className="font-medium text-sm">
+                {isDragActive ? "Drop files here..." : "Drop statement files here"}
+              </p>
+              <p className="text-xs text-muted-foreground">or click to browse — select multiple files</p>
             </div>
+
+            {/* File list */}
+            {files.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                {files.map((f, i) => {
+                  const res = results.find((r) => r.filename === f.name);
+                  const isCurrentlyUploading = uploading && uploadingIndex === i;
+                  return (
+                    <div key={f.name} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                      {isCurrentlyUploading ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                      ) : res?.error ? (
+                        <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+                      ) : res?.response ? (
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+                      ) : (
+                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="flex-1 truncate font-medium">{f.name}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{(f.size / 1024).toFixed(0)} KB</span>
+                      {!uploading && !res && (
+                        <button
+                          className="ml-1 text-muted-foreground hover:text-foreground"
+                          onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                        >
+                          <XIcon className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             <Button
               className="mt-4 w-full"
               size="lg"
               onClick={handleUpload}
-              disabled={!file || !selectedBank || !selectedAccountType || uploading}
+              disabled={files.length === 0 || !selectedBank || !selectedAccountType || uploading}
             >
               {uploading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Parsing...
+                  Uploading {uploadingIndex + 1} of {files.length}...
                 </>
               ) : (
                 <>
                   <Upload className="mr-2 h-4 w-4" />
-                  Upload & Parse
+                  Upload {files.length > 0 ? `${files.length} File${files.length > 1 ? "s" : ""}` : "Files"}
                 </>
               )}
             </Button>
@@ -183,54 +227,65 @@ export default function UploadPage() {
         </Card>
       </div>
 
-      {/* Result */}
-      {result && (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-4">
-              {result.record_count === 0 && result.duplicate_count > 0 ? (
-                <Copy className="mt-0.5 h-8 w-8 shrink-0 text-yellow-500" />
-              ) : result.status === "success" ? (
-                <CheckCircle2 className="mt-0.5 h-8 w-8 shrink-0 text-green-500" />
-              ) : (
-                <AlertCircle className="mt-0.5 h-8 w-8 shrink-0 text-yellow-500" />
-              )}
-              <div className="flex-1 space-y-1">
-                <p className="font-semibold">{result.message}</p>
-                <p className="text-sm text-muted-foreground">
-                  {result.bank_name} · {result.account_type} · {result.filename}
-                </p>
-                {result.duplicate_count > 0 && (
-                  <div className="flex items-center gap-1.5 text-sm text-yellow-600 dark:text-yellow-400">
-                    <Copy className="h-3.5 w-3.5" />
-                    <span>
-                      {result.duplicate_count} duplicate transaction{result.duplicate_count !== 1 ? "s" : ""} from this file already existed and {result.duplicate_count !== 1 ? "were" : "was"} skipped.
-                    </span>
+      {/* Results */}
+      {results.length > 0 && (
+        <div className="space-y-3">
+          {results.map((r, i) => (
+            <Card key={i}>
+              <CardContent className="pt-5">
+                <div className="flex items-start gap-4">
+                  {r.error ? (
+                    <AlertCircle className="mt-0.5 h-6 w-6 shrink-0 text-red-500" />
+                  ) : r.response && r.response.record_count === 0 && r.response.duplicate_count > 0 ? (
+                    <Copy className="mt-0.5 h-6 w-6 shrink-0 text-yellow-500" />
+                  ) : (
+                    <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-green-500" />
+                  )}
+                  <div className="flex-1 space-y-1">
+                    {r.error ? (
+                      <>
+                        <p className="font-semibold text-red-600">{r.filename}: Upload failed</p>
+                        <p className="text-sm text-muted-foreground">{r.error}</p>
+                      </>
+                    ) : r.response ? (
+                      <>
+                        <p className="font-semibold">{r.response.message}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {r.response.bank_name} · {r.response.account_type} · {r.filename}
+                        </p>
+                        {r.response.duplicate_count > 0 && (
+                          <div className="flex items-center gap-1.5 text-sm text-yellow-600 dark:text-yellow-400">
+                            <Copy className="h-3.5 w-3.5" />
+                            <span>
+                              {r.response.duplicate_count} duplicate{r.response.duplicate_count !== 1 ? "s" : ""} skipped.
+                            </span>
+                          </div>
+                        )}
+                        {r.response.error_details && r.response.error_details.length > 0 && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-xs text-yellow-600 dark:text-yellow-400">
+                              Show parse errors ({r.response.error_details.length})
+                            </summary>
+                            <ul className="mt-1 space-y-0.5">
+                              {r.response.error_details.map((e, j) => (
+                                <li key={j} className="text-xs font-mono text-red-600 dark:text-red-400">{e}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
+                      </>
+                    ) : null}
                   </div>
-                )}
-                {result.error_details && result.error_details.length > 0 && (
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-xs text-yellow-600 dark:text-yellow-400">
-                      Show parse errors ({result.error_details.length} unique)
-                    </summary>
-                    <ul className="mt-1 space-y-0.5">
-                      {result.error_details.map((e, i) => (
-                        <li key={i} className="text-xs font-mono text-red-600 dark:text-red-400">
-                          {e}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-              </div>
-              {result.record_count > 0 && (
-                <Button variant="outline" onClick={() => navigate("/transactions")}>
-                  View Transactions →
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                  {r.response && r.response.record_count > 0 && (
+                    <Button variant="outline" size="sm" onClick={() => navigate("/transactions")}>
+                      View →
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );

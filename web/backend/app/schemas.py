@@ -37,6 +37,7 @@ class TransactionOut(BaseModel):
     value_date: Optional[date] = None
     category_id: Optional[int] = None
     category_name: Optional[str] = None
+    tags: list["TagOut"] = []
 
     model_config = {"from_attributes": True}
 
@@ -135,6 +136,12 @@ class BulkTransactionCategoryAssign(BaseModel):
     category_id: Optional[int] = None
 
 
+class BulkTransactionTagUpdate(BaseModel):
+    transaction_ids: list[int]
+    add_tag_ids: list[int] = []
+    remove_tag_ids: list[int] = []
+
+
 class BulkKeywordTagUpdate(BaseModel):
     keyword_ids: list[int]
     add_tag_ids: list[int] = []
@@ -156,6 +163,15 @@ class CategorySpending(BaseModel):
     transaction_count: int
 
 
+class TagSpending(BaseModel):
+    tag_id: int
+    tag_name: str
+    color: Optional[str]
+    total_debit: float
+    total_credit: float
+    transaction_count: int
+
+
 class MonthlyTrend(BaseModel):
     month: str  # YYYY-MM
     total_debit: float
@@ -169,6 +185,7 @@ class AnalyticsSummary(BaseModel):
     categorized_count: int
     uncategorized_count: int
     category_spending: list[CategorySpending]
+    tag_spending: list[TagSpending] = []
     monthly_trends: list[MonthlyTrend]
     top_keywords: list[KeywordOut]
 

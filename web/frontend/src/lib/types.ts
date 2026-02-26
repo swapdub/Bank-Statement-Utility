@@ -37,6 +37,7 @@ export interface Transaction {
   value_date: string | null;
   category_id: number | null;
   category_name: string | null;
+  tags: Tag[];
 }
 
 export interface TransactionListResponse {
@@ -52,6 +53,7 @@ export interface TransactionFilters {
   account_type?: string;
   category_id?: number;
   uncategorized?: boolean;
+  tag_ids?: string;  // comma-separated
   date_from?: string;
   date_to?: string;
   min_amount?: number;
@@ -90,6 +92,15 @@ export interface Keyword {
   tags: Tag[];
 }
 
+export interface TagSpending {
+  tag_id: number;
+  tag_name: string;
+  color: string | null;
+  total_debit: number;
+  total_credit: number;
+  transaction_count: number;
+}
+
 export interface CategorySpending {
   category_id: number | null;
   category_name: string;
@@ -112,6 +123,7 @@ export interface AnalyticsSummary {
   categorized_count: number;
   uncategorized_count: number;
   category_spending: CategorySpending[];
+  tag_spending: TagSpending[];
   monthly_trends: MonthlyTrend[];
   top_keywords: Keyword[];
 }
