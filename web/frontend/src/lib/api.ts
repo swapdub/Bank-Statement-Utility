@@ -282,6 +282,7 @@ export async function getAnalyticsSummary(params?: {
   bank_name?: string;
   category_ids?: string;  // comma-separated
   tag_ids?: string;       // comma-separated
+  include_uncategorized?: boolean;
 }): Promise<AnalyticsSummary> {
   const urlParams = new URLSearchParams();
   if (params) {

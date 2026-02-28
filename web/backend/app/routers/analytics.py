@@ -20,7 +20,7 @@ from ..schemas import (
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
-def _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db):
+def _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db, include_uncategorized=False):
     filters = [Transaction.is_transfer == False]  # Always exclude transfers from analytics
     if date_from:
         filters.append(Transaction.transaction_date >= date_from)
@@ -28,10 +28,18 @@ def _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db):
         filters.append(Transaction.transaction_date <= date_to)
     if bank_name:
         filters.append(Transaction.bank_name == bank_name.upper())
-    if category_ids:
-        ids = [int(x) for x in category_ids.split(",") if x.strip()]
-        if ids:
-            filters.append(Transaction.category_id.in_(ids))
+    # When specific categories are selected OR uncategorized is requested,
+    # build an OR condition to include both
+    cat_id_list = [int(x) for x in category_ids.split(",") if x.strip()] if category_ids else []
+    if cat_id_list or include_uncategorized:
+        from sqlalchemy import or_
+        conditions = []
+        if cat_id_list:
+            conditions.append(Transaction.category_id.in_(cat_id_list))
+        if include_uncategorized:
+            conditions.append(Transaction.category_id.is_(None))
+        if conditions:
+            filters.append(or_(*conditions))
     if tag_ids:
         ids = [int(x) for x in tag_ids.split(",") if x.strip()]
         if ids:
@@ -52,10 +60,12 @@ def get_analytics_summary(
     bank_name: Optional[str] = Query(None),
     category_ids: Optional[str] = Query(None),
     tag_ids: Optional[str] = Query(None),
+    include_uncategorized: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
 ):
     """Return a full analytics summary for the dashboard."""
-    filters = _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db)
+    filters = _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db,
+                             include_uncategorized=bool(include_uncategorized))
     base = db.query(Transaction).filter(*filters)
 
     # ── Totals ────────────────────────────────────────────────────────────

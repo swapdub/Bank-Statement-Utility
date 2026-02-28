@@ -38,20 +38,32 @@ def _build_query(
     min_amount: Optional[float] = None,
     max_amount: Optional[float] = None,
     amount_type: Optional[str] = None,
+    bank_names: Optional[str] = None,
+    category_ids: Optional[str] = None,
 ):
     q = db.query(Transaction).options(selectinload(Transaction.tags))
 
     if search:
         q = q.filter(Transaction.description.ilike(f"%{search}%"))
 
-    if bank_name:
+    # Multi-value bank filter takes precedence over single
+    if bank_names:
+        names = [n.strip().upper() for n in bank_names.split(",") if n.strip()]
+        if names:
+            q = q.filter(Transaction.bank_name.in_(names))
+    elif bank_name:
         q = q.filter(Transaction.bank_name == bank_name.upper())
 
     if account_type:
         q = q.filter(Transaction.account_type == account_type.capitalize())
 
+    # Multi-value category filter takes precedence over single
     if uncategorized:
         q = q.filter(Transaction.category_id.is_(None))
+    elif category_ids:
+        ids = [int(x) for x in category_ids.split(",") if x.strip()]
+        if ids:
+            q = q.filter(Transaction.category_id.in_(ids))
     elif category_id is not None:
         q = q.filter(Transaction.category_id == category_id)
 
@@ -102,6 +114,8 @@ def list_transactions(
     min_amount: Optional[float] = Query(None),
     max_amount: Optional[float] = Query(None),
     amount_type: Optional[str] = Query(None),
+    bank_names: Optional[str] = Query(None),
+    category_ids: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     sort_by: str = Query("transaction_date"),
@@ -110,7 +124,7 @@ def list_transactions(
 ):
     q = _build_query(
         db, search, bank_name, account_type, category_id, uncategorized, tag_ids,
-        date_from, date_to, min_amount, max_amount, amount_type,
+        date_from, date_to, min_amount, max_amount, amount_type, bank_names, category_ids,
     )
 
     total = q.count()

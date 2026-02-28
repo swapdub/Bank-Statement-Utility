@@ -3,8 +3,8 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ArrowUpDown,
-  Filter,
   X,
   Tag,
   CheckSquare,
@@ -85,15 +85,15 @@ export default function TransactionsPage() {
     sort_order: "desc",
     // Restore from context on mount
     search: ctxFilters.search || undefined,
-    bank_name: ctxFilters.bankName || undefined,
-    category_id: ctxFilters.categoryId ?? undefined,
+    bank_names: ctxFilters.bankNames.length ? ctxFilters.bankNames.join(",") : undefined,
+    category_ids: ctxFilters.categoryIds.length ? ctxFilters.categoryIds.join(",") : undefined,
+    uncategorized: ctxFilters.uncategorized || undefined,
     date_from: ctxFilters.dateFrom || undefined,
     date_to: ctxFilters.dateTo || undefined,
     tag_ids: ctxFilters.tagIds.length ? ctxFilters.tagIds.join(",") : undefined,
   }));
 
   const [searchInput, setSearchInput] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     getCategories().then(setCategories).catch(console.error);
@@ -135,12 +135,56 @@ export default function TransactionsPage() {
       sort_order: prev.sort_by === col && prev.sort_order === "asc" ? "desc" : "asc",
     }));
 
+  // ── Multi-select filter helpers ─────────────────────────────────────────
+  const selectedBankNames = useMemo(
+    () => (filters.bank_names ? filters.bank_names.split(",").filter(Boolean) : []),
+    [filters.bank_names],
+  );
+  const toggleBank = (name: string) => {
+    const next = selectedBankNames.includes(name)
+      ? selectedBankNames.filter((b) => b !== name)
+      : [...selectedBankNames, name];
+    setFilters((prev) => ({ ...prev, bank_names: next.length ? next.join(",") : undefined, bank_name: undefined, page: 1 }));
+  };
+
+  const selectedCategoryIds = useMemo(
+    () => (filters.category_ids ? filters.category_ids.split(",").map(Number).filter(Boolean) : []),
+    [filters.category_ids],
+  );
+  const toggleCategoryFilter = (id: number) => {
+    const next = selectedCategoryIds.includes(id)
+      ? selectedCategoryIds.filter((c) => c !== id)
+      : [...selectedCategoryIds, id];
+    setFilters((prev) => ({ ...prev, category_ids: next.length ? next.join(",") : undefined, category_id: undefined, uncategorized: undefined, page: 1 }));
+  };
+  const setUncategorizedFilter = (val: boolean) => {
+    setFilters((prev) => ({
+      ...prev,
+      uncategorized: val || undefined,
+      category_id: undefined,
+      category_ids: val ? undefined : prev.category_ids,
+      page: 1,
+    }));
+  };
+
+  const selectedTagIds = useMemo(
+    () => (filters.tag_ids ? filters.tag_ids.split(",").map(Number).filter(Boolean) : []),
+    [filters.tag_ids],
+  );
+  const toggleTagFilter = (id: number) => {
+    const next = selectedTagIds.includes(id)
+      ? selectedTagIds.filter((t) => t !== id)
+      : [...selectedTagIds, id];
+    setFilters((prev) => ({ ...prev, tag_ids: next.length ? next.join(",") : undefined, page: 1 }));
+  };
+
   const activeFilterCount = useMemo(() => {
     let count = 0;
-    if (filters.bank_name) count++;
+    if (filters.bank_name || filters.bank_names) count++;
     if (filters.account_type) count++;
-    if (filters.category_id) count++;
+    if (filters.category_id || filters.category_ids) count++;
     if (filters.uncategorized) count++;
+    if (filters.tag_ids) count++;
     if (filters.date_from) count++;
     if (filters.date_to) count++;
     if (filters.min_amount) count++;
@@ -388,7 +432,7 @@ export default function TransactionsPage() {
         onChanged={refreshTransfers}
       />
 
-      {/* Search + Filter bar */}
+      {/* Search bar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -401,17 +445,6 @@ export default function TransactionsPage() {
           />
         </div>
         <Button variant="outline" onClick={handleSearch}>Search</Button>
-
-        <Button
-          variant={showFilters ? "secondary" : "outline"}
-          onClick={() => setShowFilters((prev) => !prev)}
-        >
-          <Filter className="mr-2 h-4 w-4" />
-          Filters
-          {activeFilterCount > 0 && (
-            <Badge variant="destructive" className="ml-2">{activeFilterCount}</Badge>
-          )}
-        </Button>
 
         {activeFilterCount > 0 && (
           <Button variant="ghost" size="sm" onClick={clearFilters}>
@@ -429,77 +462,160 @@ export default function TransactionsPage() {
         </div>
       </div>
 
-      {/* Expanded filters */}
-      {showFilters && (
-        <Card>
-          <CardContent className="grid grid-cols-2 gap-4 pt-4 md:grid-cols-4 lg:grid-cols-6">
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Bank</label>
-              <Select
-                value={filters.bank_name || "all"}
-                onValueChange={(v) => updateFilter("bank_name", v === "all" ? undefined : v)}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Banks</SelectItem>
-                  {banks.map((b) => <SelectItem key={b.name} value={b.name}>{b.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+      {/* Filters — always visible */}
+      <Card>
+        <CardContent className="grid grid-cols-2 gap-4 pt-4 md:grid-cols-4 lg:grid-cols-7">
+          {/* Bank multi-select */}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Bank</label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 w-full justify-between text-xs font-normal">
+                  {selectedBankNames.length === 0
+                    ? "All Banks"
+                    : `${selectedBankNames.length} bank${selectedBankNames.length > 1 ? "s" : ""}`}
+                  <ChevronDown className="ml-1 h-3 w-3 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-48 p-2" align="start">
+                <div className="mb-1 flex gap-1">
+                  <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                    onClick={() => setFilters((prev) => ({ ...prev, bank_names: banks.map((b) => b.name).join(","), bank_name: undefined, page: 1 }))}>
+                    ✓ All
+                  </button>
+                  {selectedBankNames.length > 0 && (
+                    <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                      onClick={() => setFilters((prev) => ({ ...prev, bank_names: undefined, bank_name: undefined, page: 1 }))}>
+                      × Clear
+                    </button>
+                  )}
+                </div>
+                {banks.map((b) => (
+                  <label key={b.name} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
+                    <Checkbox checked={selectedBankNames.includes(b.name)} onCheckedChange={() => toggleBank(b.name)} className="h-3.5 w-3.5" />
+                    {b.name}
+                  </label>
+                ))}
+              </PopoverContent>
+            </Popover>
+          </div>
 
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Category</label>
-              <Select
-                value={filters.uncategorized ? "uncategorized" : String(filters.category_id || "all")}
-                onValueChange={(v) => {
-                  if (v === "uncategorized") {
-                    setFilters((prev) => ({ ...prev, category_id: undefined, uncategorized: true, page: 1 }));
-                  } else if (v === "all") {
-                    setFilters((prev) => ({ ...prev, category_id: undefined, uncategorized: undefined, page: 1 }));
-                  } else {
-                    setFilters((prev) => ({ ...prev, category_id: Number(v), uncategorized: undefined, page: 1 }));
-                  }
-                }}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  <SelectItem value="uncategorized">Uncategorized</SelectItem>
-                  {categories.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+          {/* Category multi-select */}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Category</label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 w-full justify-between text-xs font-normal">
+                  {filters.uncategorized
+                    ? "Uncategorized"
+                    : selectedCategoryIds.length === 0
+                      ? "All Categories"
+                      : `${selectedCategoryIds.length} selected`}
+                  <ChevronDown className="ml-1 h-3 w-3 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-52 p-2" align="start">
+                <div className="mb-1 flex gap-1">
+                  <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                    onClick={() => setFilters((prev) => ({ ...prev, category_ids: categories.map((c) => c.id).join(","), category_id: undefined, uncategorized: undefined, page: 1 }))}>
+                    ✓ All
+                  </button>
+                  {(selectedCategoryIds.length > 0 || filters.uncategorized) && (
+                    <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                      onClick={() => setFilters((prev) => ({ ...prev, category_ids: undefined, category_id: undefined, uncategorized: undefined, page: 1 }))}>
+                      × Clear
+                    </button>
+                  )}
+                </div>
+                <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
+                  <Checkbox checked={!!filters.uncategorized} onCheckedChange={() => setUncategorizedFilter(!filters.uncategorized)} className="h-3.5 w-3.5" />
+                  <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: "#9ca3af" }} />
+                  Uncategorized
+                </label>
+                {categories.map((c) => (
+                  <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
+                    <Checkbox
+                      checked={selectedCategoryIds.includes(c.id)}
+                      onCheckedChange={() => toggleCategoryFilter(c.id)}
+                      className="h-3.5 w-3.5"
+                      disabled={!!filters.uncategorized}
+                    />
+                    <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c.color || "#ccc" }} />
+                    {c.name}
+                  </label>
+                ))}
+              </PopoverContent>
+            </Popover>
+          </div>
 
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">From Date</label>
-              <Input type="date" value={filters.date_from || ""} onChange={(e) => updateFilter("date_from", e.target.value)} />
-            </div>
+          {/* Tag multi-select */}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Tags</label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 w-full justify-between text-xs font-normal">
+                  {selectedTagIds.length === 0
+                    ? "All Tags"
+                    : `${selectedTagIds.length} tag${selectedTagIds.length > 1 ? "s" : ""}`}
+                  <ChevronDown className="ml-1 h-3 w-3 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-48 p-2" align="start">
+                <div className="mb-1 flex gap-1">
+                  <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                    onClick={() => setFilters((prev) => ({ ...prev, tag_ids: allTags.map((t) => t.id).join(","), page: 1 }))}>
+                    ✓ All
+                  </button>
+                  {selectedTagIds.length > 0 && (
+                    <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                      onClick={() => setFilters((prev) => ({ ...prev, tag_ids: undefined, page: 1 }))}>
+                      × Clear
+                    </button>
+                  )}
+                </div>
+                {allTags.map((t) => (
+                  <label key={t.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
+                    <Checkbox checked={selectedTagIds.includes(t.id)} onCheckedChange={() => toggleTagFilter(t.id)} className="h-3.5 w-3.5" />
+                    <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: t.color || "#6366f1" }} />
+                    {t.name}
+                  </label>
+                ))}
+                {allTags.length === 0 && (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">No tags yet.</p>
+                )}
+              </PopoverContent>
+            </Popover>
+          </div>
 
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">To Date</label>
-              <Input type="date" value={filters.date_to || ""} onChange={(e) => updateFilter("date_to", e.target.value)} />
-            </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">From Date</label>
+            <Input type="date" value={filters.date_from || ""} onChange={(e) => updateFilter("date_from", e.target.value)} />
+          </div>
 
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Min Amount</label>
-              <Input
-                type="number" placeholder="₹0"
-                value={filters.min_amount ?? ""}
-                onChange={(e) => updateFilter("min_amount", e.target.value ? Number(e.target.value) : undefined)}
-              />
-            </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">To Date</label>
+            <Input type="date" value={filters.date_to || ""} onChange={(e) => updateFilter("date_to", e.target.value)} />
+          </div>
 
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Max Amount</label>
-              <Input
-                type="number" placeholder="₹99,999"
-                value={filters.max_amount ?? ""}
-                onChange={(e) => updateFilter("max_amount", e.target.value ? Number(e.target.value) : undefined)}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      )}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Min Amount</label>
+            <Input
+              type="number" placeholder="₹0"
+              value={filters.min_amount ?? ""}
+              onChange={(e) => updateFilter("min_amount", e.target.value ? Number(e.target.value) : undefined)}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Max Amount</label>
+            <Input
+              type="number" placeholder="₹99,999"
+              value={filters.max_amount ?? ""}
+              onChange={(e) => updateFilter("max_amount", e.target.value ? Number(e.target.value) : undefined)}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Transaction Table */}
       <Card>

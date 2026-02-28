@@ -26,6 +26,7 @@ import {
   Legend,
   LineChart,
   Line,
+  ReferenceLine,
 } from "recharts";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -119,11 +120,12 @@ export default function AnalyticsPage() {
       bank_name: filters.bankName || undefined,
       category_ids: filters.categoryIds.length ? filters.categoryIds.join(",") : undefined,
       tag_ids: filters.tagIds.length ? filters.tagIds.join(",") : undefined,
+      include_uncategorized: (filters.categoryIds.length > 0 || filters.includeUncategorized) ? filters.includeUncategorized : undefined,
     })
       .then(setSummary)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [filters.dateFrom, filters.dateTo, filters.bankName, filters.categoryIds, filters.tagIds]);
+  }, [filters.dateFrom, filters.dateTo, filters.bankName, filters.categoryIds, filters.tagIds, filters.includeUncategorized]);
 
   const applyPreset = (months: number, label: string) => {
     if (months === 0) {
@@ -138,11 +140,12 @@ export default function AnalyticsPage() {
 
   const goToTransactions = (categoryId: number | null = null, tagId: number | null = null) => {
     setTxnFilters({
-      categoryId,
+      categoryIds: categoryId !== null ? [categoryId] : [],
+      uncategorized: categoryId === null,
       tagIds: tagId ? [tagId] : [],
       dateFrom: filters.dateFrom,
       dateTo: filters.dateTo,
-      bankName: filters.bankName,
+      bankNames: filters.bankName ? [filters.bankName] : [],
       fromAnalytics: true,
     });
     navigate("/transactions");
@@ -158,6 +161,21 @@ export default function AnalyticsPage() {
   // But DON'T unmount the whole page on filter change — that closes dropdowns
   const isFirstLoad = !summary && loading;
 
+  // Compute category/tag IDs that actually have transactions (for filter dropdowns)
+  const activeCategoryIds = new Set(
+    (summary?.category_spending ?? [])
+      .filter((c) => c.transaction_count > 0 && c.category_id !== null)
+      .map((c) => c.category_id as number)
+  );
+  const hasUncategorized = (summary?.uncategorized_count ?? 0) > 0;
+  const activeTagIds = new Set(
+    (summary?.tag_spending ?? [])
+      .filter((t) => t.transaction_count > 0)
+      .map((t) => t.tag_id)
+  );
+  const visibleCategories = categories.filter((c) => activeCategoryIds.has(c.id));
+  const visibleTags = allTags.filter((t) => activeTagIds.has(t.id));
+
   if (isFirstLoad) {
     return (
       <div className="py-20 text-center text-muted-foreground">Loading analytics...</div>
@@ -167,7 +185,7 @@ export default function AnalyticsPage() {
   if (!summary || summary.transaction_count === 0) {
     const hasActiveFilters =
       filters.dateFrom || filters.dateTo || filters.bankName ||
-      filters.categoryIds.length > 0 || filters.tagIds.length > 0;
+      filters.categoryIds.length > 0 || filters.tagIds.length > 0 || filters.includeUncategorized;
     return (
       <div className="space-y-6">
         {/* Still render the filter panel so users can adjust/clear filters */}
@@ -197,7 +215,7 @@ export default function AnalyticsPage() {
                 onChange={(e) => setFilters({ dateTo: e.target.value, preset: "" })} />
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground"
-                  onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], tagIds: [], preset: "" })}>
+                  onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], preset: "" })}>
                   × Clear all filters
                 </Button>
               )}
@@ -211,7 +229,7 @@ export default function AnalyticsPage() {
             <>
               <h2 className="text-lg font-semibold">No results for current filters</h2>
               <p className="mb-4 text-sm">Try adjusting your date range or removing filters.</p>
-              <Button variant="outline" onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], tagIds: [], preset: "" })}>
+              <Button variant="outline" onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], preset: "" })}>
                 Clear All Filters
               </Button>
             </>
@@ -250,6 +268,11 @@ export default function AnalyticsPage() {
   const categorizationPct = Math.round(
     (summary.categorized_count / summary.transaction_count) * 100
   );
+
+  // Average monthly spend/income
+  const numMonths = summary.monthly_trends.length || 1;
+  const avgMonthlySpend = summary.total_debit / numMonths;
+  const avgMonthlyIncome = summary.total_credit / numMonths;
 
   return (
     <div className="space-y-6">
@@ -312,14 +335,14 @@ export default function AnalyticsPage() {
               </Select>
             )}
 
-            {categories.length > 0 && (
+            {(visibleCategories.length > 0 || hasUncategorized) && (
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
                     <Layers className="h-3 w-3" />
-                    {filters.categoryIds.length === 0
+                    {filters.categoryIds.length === 0 && !filters.includeUncategorized
                       ? "All categories"
-                      : `${filters.categoryIds.length} categor${filters.categoryIds.length === 1 ? "y" : "ies"}`}
+                      : `${filters.categoryIds.length + (filters.includeUncategorized ? 1 : 0)} selected`}
                     <ChevronDown className="h-3 w-3 opacity-50" />
                   </Button>
                 </PopoverTrigger>
@@ -330,20 +353,33 @@ export default function AnalyticsPage() {
                   <div className="mb-1 flex gap-1">
                     <button
                       className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                      onClick={() => setFilters({ categoryIds: categories.map((c) => c.id) })}
+                      onClick={() => setFilters({ categoryIds: visibleCategories.map((c) => c.id), includeUncategorized: hasUncategorized })}
                     >
                       ✓ All
                     </button>
-                    {filters.categoryIds.length > 0 && (
+                    {(filters.categoryIds.length > 0 || filters.includeUncategorized) && (
                       <button
                         className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                        onClick={() => setFilters({ categoryIds: [] })}
+                        onClick={() => setFilters({ categoryIds: [], includeUncategorized: false })}
                       >
                         × Clear
                       </button>
                     )}
                   </div>
-                  {categories.map((c) => (
+                  {hasUncategorized && (
+                    <label
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
+                    >
+                      <Checkbox
+                        checked={filters.includeUncategorized}
+                        onCheckedChange={() => setFilters({ includeUncategorized: !filters.includeUncategorized })}
+                        className="h-3.5 w-3.5"
+                      />
+                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: "#9ca3af" }} />
+                      Uncategorized
+                    </label>
+                  )}
+                  {visibleCategories.map((c) => (
                     <label
                       key={c.id}
                       className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
@@ -361,7 +397,7 @@ export default function AnalyticsPage() {
               </Popover>
             )}
 
-            {allTags.length > 0 && (
+            {visibleTags.length > 0 && (
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
@@ -379,7 +415,7 @@ export default function AnalyticsPage() {
                   <div className="mb-1 flex gap-1">
                     <button
                       className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                      onClick={() => setFilters({ tagIds: allTags.map((t) => t.id) })}
+                      onClick={() => setFilters({ tagIds: visibleTags.map((t) => t.id) })}
                     >
                       ✓ All
                     </button>
@@ -392,7 +428,7 @@ export default function AnalyticsPage() {
                       </button>
                     )}
                   </div>
-                  {allTags.map((t) => (
+                  {visibleTags.map((t) => (
                     <label
                       key={t.id}
                       className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
@@ -410,10 +446,10 @@ export default function AnalyticsPage() {
               </Popover>
             )}
 
-            {(filters.dateFrom || filters.dateTo || filters.bankName || filters.categoryIds.length > 0 || filters.tagIds.length > 0) && (
+            {(filters.dateFrom || filters.dateTo || filters.bankName || filters.categoryIds.length > 0 || filters.tagIds.length > 0 || filters.includeUncategorized) && (
               <Button
                 variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground"
-                onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], tagIds: [], preset: "" })}
+                onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], preset: "" })}
               >
                 × Clear all
               </Button>
@@ -423,7 +459,7 @@ export default function AnalyticsPage() {
       </Card>
 
       {/* ── Summary Cards ────────────────────────────────────────────────────── */}
-      <div className={`transition-opacity duration-200 ${loading ? "opacity-40 pointer-events-none" : ""}`}>
+      <div className={`space-y-6 transition-opacity duration-200 ${loading ? "opacity-40 pointer-events-none" : ""}`}>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -514,7 +550,7 @@ export default function AnalyticsPage() {
                     setTxnFilters({
                       dateFrom: `${y}-${m}-01`,
                       dateTo: `${y}-${m}-${String(lastDay).padStart(2, "0")}`,
-                      bankName: filters.bankName,
+                      bankNames: filters.bankName ? [filters.bankName] : [],
                       fromAnalytics: true,
                     });
                     navigate("/transactions");
@@ -603,9 +639,21 @@ export default function AnalyticsPage() {
 
       {/* ── Spending Over Time ───────────────────────────────────────────────── */}
       <Card>
-        <CardHeader>
-          <CardTitle>Spending Over Time</CardTitle>
-          <CardDescription>Monthly debit &amp; credit trend</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle>Spending Over Time</CardTitle>
+            <CardDescription>Monthly debit &amp; credit trend</CardDescription>
+          </div>
+          <div className="flex items-center gap-4 text-sm">
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">Avg monthly spend</p>
+              <p className="font-semibold text-red-600">{formatINR(avgMonthlySpend)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">Avg monthly income</p>
+              <p className="font-semibold text-green-600">{formatINR(avgMonthlyIncome)}</p>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={250}>
@@ -614,6 +662,8 @@ export default function AnalyticsPage() {
               <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
               <YAxis tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} className="text-xs" tick={{ fontSize: 11 }} />
               <RechartsTooltip content={<MonthlyTooltip />} />
+              <ReferenceLine y={avgMonthlySpend} stroke="#ef4444" strokeDasharray="5 3" strokeOpacity={0.45} />
+              <ReferenceLine y={avgMonthlyIncome} stroke="#22c55e" strokeDasharray="5 3" strokeOpacity={0.45} />
               <Line type="monotone" dataKey="total_debit" name="Spent" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="total_credit" name="Received" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} />
             </LineChart>

@@ -55,9 +55,11 @@ export interface TransactionListResponse {
 
 export interface TransactionFilters {
   search?: string;
-  bank_name?: string;
+  bank_name?: string;      // single value (legacy)
+  bank_names?: string;     // comma-separated for multi-select
   account_type?: string;
-  category_id?: number;
+  category_id?: number;    // single value (legacy)
+  category_ids?: string;   // comma-separated for multi-select
   uncategorized?: boolean;
   tag_ids?: string;  // comma-separated
   date_from?: string;

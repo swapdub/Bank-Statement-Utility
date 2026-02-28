@@ -12,14 +12,16 @@ export interface AnalyticsFilters {
   dateTo: string;
   bankName: string;
   categoryIds: number[];   // selected to INCLUDE (empty = all)
+  includeUncategorized: boolean; // show uncategorized transactions in analytics
   tagIds: number[];        // selected to INCLUDE (empty = all)
   preset: string;          // "1M" | "3M" | "6M" | "1Y" | "2Y" | "5Y" | "all"
 }
 
 export interface TransactionFilters {
   search: string;
-  bankName: string;
-  categoryId: number | null;
+  bankNames: string[];
+  categoryIds: number[];
+  uncategorized: boolean;
   tagIds: number[];
   dateFrom: string;
   dateTo: string;
@@ -36,10 +38,10 @@ interface FilterContextValue {
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 const defaultAnalytics: AnalyticsFilters = {
-  dateFrom: "", dateTo: "", bankName: "", categoryIds: [], tagIds: [], preset: "all",
+  dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], preset: "all",
 };
 const defaultTransactions: TransactionFilters = {
-  search: "", bankName: "", categoryId: null, tagIds: [], dateFrom: "", dateTo: "",
+  search: "", bankNames: [], categoryIds: [], uncategorized: false, tagIds: [], dateFrom: "", dateTo: "",
   fromAnalytics: false,
 };
 

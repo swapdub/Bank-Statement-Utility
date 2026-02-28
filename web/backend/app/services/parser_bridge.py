@@ -152,6 +152,13 @@ SUPPORTED_BANKS = [
             {"type": "Creditcard", "formats": ["PDF"]},
         ],
     },
+    {
+        "name": "ICICI",
+        "account_types": [
+            {"type": "Saving",  "formats": ["XLS"]},
+            {"type": "Current", "formats": ["XLS"]},
+        ],
+    },
 ]
 
 
@@ -198,6 +205,9 @@ def _get_processor(bank_name: str, source: str, filepath: str):
         return cls(filepath, source_cap)
     elif bank_name == "YES" and source_cap == "Creditcard":
         cls = _load_processor("YesCcStatementProcessor", "YesCcStatementProcessor")
+        return cls(filepath, source_cap)
+    elif bank_name == "ICICI" and source_cap in ("Saving", "Current"):
+        cls = _load_processor("IciciSavingStatementProcessor", "IciciSavingStatementProcessor")
         return cls(filepath, source_cap)
 
     return None
