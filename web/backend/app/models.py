@@ -64,6 +64,9 @@ class Transaction(Base):
     # Category assigned (through keyword match or manual override)
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
 
+    # Transfer linking — denormalized flag for fast analytics exclusion
+    is_transfer = Column(Boolean, default=False, server_default="0", nullable=False)
+
     upload_session = relationship("UploadSession", back_populates="transactions")
     category = relationship("Category", back_populates="transactions")
     tags = relationship("Tag", secondary="transaction_tags", back_populates="transactions")
@@ -72,6 +75,7 @@ class Transaction(Base):
         Index("idx_txn_date", "transaction_date"),
         Index("idx_txn_bank", "bank_name", "account_type"),
         Index("idx_txn_category", "category_id"),
+        Index("idx_txn_transfer", "is_transfer"),
     )
 
 
@@ -124,6 +128,31 @@ class Keyword(Base):
     __table_args__ = (
         Index("idx_keyword_freq", "frequency"),
         Index("idx_keyword_category", "category_id"),
+    )
+
+
+class TransferLink(Base):
+    """
+    Links two transactions that represent the same money moving between accounts.
+    debit_txn = money going out, credit_txn = money coming in.
+    status: suggested | confirmed | denied
+    """
+    __tablename__ = "transfer_links"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    debit_txn_id = Column(Integer, ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)
+    credit_txn_id = Column(Integer, ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String(20), nullable=False, default="suggested")  # suggested | confirmed | denied
+    confidence = Column(Float, nullable=True)  # 0.0 – 1.0 detection score
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    confirmed_at = Column(DateTime, nullable=True)
+
+    debit_txn = relationship("Transaction", foreign_keys=[debit_txn_id], backref="transfer_links_as_debit")
+    credit_txn = relationship("Transaction", foreign_keys=[credit_txn_id], backref="transfer_links_as_credit")
+
+    __table_args__ = (
+        UniqueConstraint("debit_txn_id", "credit_txn_id", name="uq_transfer_pair"),
+        Index("idx_transfer_status", "status"),
     )
 
 

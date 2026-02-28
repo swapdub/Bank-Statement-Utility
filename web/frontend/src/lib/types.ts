@@ -41,6 +41,8 @@ export interface Transaction {
   value_date: string | null;
   category_id: number | null;
   category_name: string | null;
+  is_transfer: boolean;
+  transfer_link_id: number | null;
   tags: Tag[];
 }
 
@@ -130,4 +132,32 @@ export interface AnalyticsSummary {
   tag_spending: TagSpending[];
   monthly_trends: MonthlyTrend[];
   top_keywords: Keyword[];
+}
+
+// ── Transfer links ────────────────────────────────────────────────────────────
+
+export interface TransferLinkTransaction {
+  id: number;
+  bank_name: string;
+  account_type: string;
+  transaction_date: string;
+  description: string;
+  debit_amount: number | null;
+  credit_amount: number | null;
+}
+
+export interface TransferLink {
+  id: number;
+  debit_txn: TransferLinkTransaction;
+  credit_txn: TransferLinkTransaction;
+  status: "suggested" | "confirmed" | "denied";
+  confidence: number | null;
+  created_at: string | null;
+  confirmed_at: string | null;
+}
+
+export interface TransferCounts {
+  suggested: number;
+  confirmed: number;
+  denied: number;
 }

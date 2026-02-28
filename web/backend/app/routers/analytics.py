@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
 def _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db):
-    filters = []
+    filters = [Transaction.is_transfer == False]  # Always exclude transfers from analytics
     if date_from:
         filters.append(Transaction.transaction_date >= date_from)
     if date_to:

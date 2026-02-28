@@ -37,6 +37,8 @@ class TransactionOut(BaseModel):
     value_date: Optional[date] = None
     category_id: Optional[int] = None
     category_name: Optional[str] = None
+    is_transfer: bool = False
+    transfer_link_id: Optional[int] = None
     tags: list["TagOut"] = []
 
     model_config = {"from_attributes": True}
@@ -203,3 +205,34 @@ class BankInfo(BaseModel):
 
 class SupportedFormatsResponse(BaseModel):
     banks: list[BankInfo]
+
+
+# ── Transfer links ────────────────────────────────────────────────────────────
+class TransferLinkTransaction(BaseModel):
+    """Compact transaction info for transfer link display."""
+    id: int
+    bank_name: str
+    account_type: str
+    transaction_date: date
+    description: str
+    debit_amount: Optional[float] = None
+    credit_amount: Optional[float] = None
+
+    model_config = {"from_attributes": True}
+
+
+class TransferLinkOut(BaseModel):
+    id: int
+    debit_txn: TransferLinkTransaction
+    credit_txn: TransferLinkTransaction
+    status: str
+    confidence: Optional[float] = None
+    created_at: Optional[datetime] = None
+    confirmed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ManualLinkRequest(BaseModel):
+    debit_txn_id: int
+    credit_txn_id: int

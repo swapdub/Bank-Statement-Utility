@@ -9,7 +9,7 @@ from sqlalchemy import or_, func, case
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
-from ..models import Transaction, Category, Tag, transaction_tags
+from ..models import Transaction, Category, Tag, transaction_tags, TransferLink
 from ..schemas import TransactionOut, TransactionListResponse, BulkTransactionCategoryAssign, BulkTransactionTagUpdate, TagOut
 
 from datetime import date
@@ -125,13 +125,29 @@ def list_transactions(
     offset = (page - 1) * page_size
     rows = q.offset(offset).limit(page_size).all()
 
-    # Build response with category names and tags
+    # Build response with category names, tags, and transfer link IDs
+    txn_ids = [row.id for row in rows]
+    # Batch-fetch transfer links for all transactions on this page
+    link_map: dict[int, int] = {}
+    if txn_ids:
+        links = db.query(TransferLink).filter(
+            TransferLink.status.in_(["suggested", "confirmed"]),
+            or_(
+                TransferLink.debit_txn_id.in_(txn_ids),
+                TransferLink.credit_txn_id.in_(txn_ids),
+            ),
+        ).all()
+        for lnk in links:
+            link_map.setdefault(lnk.debit_txn_id, lnk.id)
+            link_map.setdefault(lnk.credit_txn_id, lnk.id)
+
     txns = []
     for row in rows:
         t = TransactionOut.model_validate(row)
         if row.category:
             t.category_name = row.category.name
         t.tags = [TagOut.model_validate(tag) for tag in row.tags]
+        t.transfer_link_id = link_map.get(row.id)
         txns.append(t)
 
     return TransactionListResponse(

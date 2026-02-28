@@ -11,6 +11,8 @@ import type {
   Tag,
   Keyword,
   AnalyticsSummary,
+  TransferLink,
+  TransferCounts,
 } from "./types";
 
 const BASE = "/api";
@@ -288,5 +290,64 @@ export async function getAnalyticsSummary(params?: {
     }
   }
   const res = await fetch(`${BASE}/analytics/summary?${urlParams}`);
+  return handleResponse(res);
+}
+
+// ── Transfers ────────────────────────────────────────────────────────────────
+
+export async function detectTransfers(): Promise<{ status: string; new_suggestions: number }> {
+  const res = await fetch(`${BASE}/transfers/detect`, { method: "POST" });
+  return handleResponse(res);
+}
+
+export async function getTransferSuggestions(): Promise<TransferLink[]> {
+  const res = await fetch(`${BASE}/transfers/suggestions`);
+  return handleResponse(res);
+}
+
+export async function getConfirmedTransfers(): Promise<TransferLink[]> {
+  const res = await fetch(`${BASE}/transfers/confirmed`);
+  return handleResponse(res);
+}
+
+export async function getDeniedTransfers(): Promise<TransferLink[]> {
+  const res = await fetch(`${BASE}/transfers/denied`);
+  return handleResponse(res);
+}
+
+export async function getTransferCounts(): Promise<TransferCounts> {
+  const res = await fetch(`${BASE}/transfers/count`);
+  return handleResponse(res);
+}
+
+export async function confirmTransfer(linkId: number): Promise<void> {
+  const res = await fetch(`${BASE}/transfers/${linkId}/confirm`, { method: "POST" });
+  await handleResponse(res);
+}
+
+export async function denyTransfer(linkId: number): Promise<void> {
+  const res = await fetch(`${BASE}/transfers/${linkId}/deny`, { method: "POST" });
+  await handleResponse(res);
+}
+
+export async function restoreTransfer(linkId: number): Promise<void> {
+  const res = await fetch(`${BASE}/transfers/${linkId}/restore`, { method: "POST" });
+  await handleResponse(res);
+}
+
+export async function unlinkTransfer(linkId: number): Promise<void> {
+  const res = await fetch(`${BASE}/transfers/${linkId}/unlink`, { method: "POST" });
+  await handleResponse(res);
+}
+
+export async function manualLinkTransfer(
+  debitTxnId: number,
+  creditTxnId: number
+): Promise<TransferLink> {
+  const res = await fetch(`${BASE}/transfers/link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ debit_txn_id: debitTxnId, credit_txn_id: creditTxnId }),
+  });
   return handleResponse(res);
 }

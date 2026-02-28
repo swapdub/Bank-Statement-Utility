@@ -4,7 +4,7 @@ Uses SQLAlchemy with a local SQLite file stored alongside the backend.
 """
 
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 DB_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -36,5 +36,20 @@ def get_db():
 
 
 def init_db():
-    """Create all tables if they don't exist."""
+    """Create all tables if they don't exist, and apply lightweight migrations."""
     Base.metadata.create_all(bind=engine)
+    _apply_migrations()
+
+
+def _apply_migrations():
+    """Add columns/indexes that create_all won't add to existing tables."""
+    insp = inspect(engine)
+
+    # Migration: add is_transfer column to transactions
+    if "transactions" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("transactions")}
+        if "is_transfer" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE transactions ADD COLUMN is_transfer BOOLEAN NOT NULL DEFAULT 0"
+                ))

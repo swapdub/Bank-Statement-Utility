@@ -9,6 +9,9 @@ import {
   Tag,
   CheckSquare,
   Info,
+  ArrowLeftRight,
+  Link2,
+  Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -48,10 +51,14 @@ import {
   setTransactionCategory,
   updateTransactionTags,
   bulkUpdateTransactionTags,
+  getTransferCounts,
+  detectTransfers,
+  manualLinkTransfer,
 } from "@/lib/api";
-import type { Transaction, TransactionFilters, Category, BankInfo, Tag as TagType } from "@/lib/types";
+import type { Transaction, TransactionFilters, Category, BankInfo, Tag as TagType, TransferCounts } from "@/lib/types";
 import { formatINR, formatDate } from "@/lib/format";
 import { useTransactionFilters } from "@/lib/filterContext";
+import TransferReviewDialog from "@/components/TransferReviewDialog";
 
 export default function TransactionsPage() {
   const navigate = useNavigate();
@@ -65,6 +72,11 @@ export default function TransactionsPage() {
   const [allTags, setAllTags] = useState<TagType[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
+
+  // Transfer state
+  const [transferCounts, setTransferCounts] = useState<TransferCounts>({ suggested: 0, confirmed: 0, denied: 0 });
+  const [transferReviewOpen, setTransferReviewOpen] = useState(false);
+  const [detecting, setDetecting] = useState(false);
 
   const [filters, setFilters] = useState<TransactionFilters>(() => ({
     page: 1,
@@ -87,6 +99,7 @@ export default function TransactionsPage() {
     getCategories().then(setCategories).catch(console.error);
     getSupportedFormats().then((d) => setBanks(d.banks)).catch(console.error);
     getTags().then(setAllTags).catch(console.error);
+    getTransferCounts().then(setTransferCounts).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -256,6 +269,61 @@ export default function TransactionsPage() {
     }
   };
 
+  // ── Transfer helpers ─────────────────────────────────────────────────────
+  const refreshTransfers = () => {
+    getTransferCounts().then(setTransferCounts).catch(console.error);
+    // Re-fetch current page to update is_transfer badges
+    setFilters((prev) => ({ ...prev }));
+  };
+
+  const handleDetect = async () => {
+    setDetecting(true);
+    try {
+      const result = await detectTransfers();
+      if (result.new_suggestions > 0) {
+        toast.success(`Found ${result.new_suggestions} possible transfer${result.new_suggestions > 1 ? "s" : ""}`);
+        refreshTransfers();
+      } else {
+        toast.info("No new transfers detected");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Detection failed");
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const handleManualLink = async () => {
+    const ids = [...selectedIds];
+    if (ids.length !== 2) return;
+
+    // Determine which is debit and which is credit
+    const txn1 = transactions.find((t) => t.id === ids[0]);
+    const txn2 = transactions.find((t) => t.id === ids[1]);
+    if (!txn1 || !txn2) return;
+
+    let debitId: number, creditId: number;
+    if (txn1.debit_amount && txn2.credit_amount) {
+      debitId = txn1.id;
+      creditId = txn2.id;
+    } else if (txn2.debit_amount && txn1.credit_amount) {
+      debitId = txn2.id;
+      creditId = txn1.id;
+    } else {
+      toast.error("Select one debit and one credit transaction to link");
+      return;
+    }
+
+    try {
+      await manualLinkTransfer(debitId, creditId);
+      toast.success("Transactions linked as transfer");
+      setSelectedIds(new Set());
+      refreshTransfers();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to link");
+    }
+  };
+
   return (
     <div className="space-y-4 pb-24">
       <div className="flex items-center justify-between">
@@ -285,6 +353,40 @@ export default function TransactionsPage() {
           }}>← Back to Analytics</Button>
         </div>
       )}
+
+      {/* Transfer suggestions banner */}
+      <div className="flex items-center gap-2 rounded-lg border px-4 py-2.5">
+        <ArrowLeftRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="text-sm flex-1">
+          {transferCounts.suggested > 0 ? (
+            <>
+              <span className="font-medium">{transferCounts.suggested}</span> possible transfer{transferCounts.suggested > 1 ? "s" : ""} detected
+              {transferCounts.confirmed > 0 && (
+                <span className="text-muted-foreground"> · {transferCounts.confirmed} confirmed</span>
+              )}
+            </>
+          ) : transferCounts.confirmed > 0 ? (
+            <span className="text-muted-foreground">{transferCounts.confirmed} confirmed transfer{transferCounts.confirmed > 1 ? "s" : ""}</span>
+          ) : (
+            <span className="text-muted-foreground">Detect inter-account transfers to avoid double-counting in analytics</span>
+          )}
+        </span>
+        <Button size="sm" variant="outline" className="h-7 text-xs" disabled={detecting} onClick={handleDetect}>
+          {detecting ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <ArrowLeftRight className="mr-1 h-3 w-3" />}
+          Detect
+        </Button>
+        {(transferCounts.suggested > 0 || transferCounts.confirmed > 0 || transferCounts.denied > 0) && (
+          <Button size="sm" variant={transferCounts.suggested > 0 ? "default" : "outline"} className="h-7 text-xs" onClick={() => setTransferReviewOpen(true)}>
+            Review{transferCounts.suggested > 0 && ` (${transferCounts.suggested})`}
+          </Button>
+        )}
+      </div>
+
+      <TransferReviewDialog
+        open={transferReviewOpen}
+        onOpenChange={setTransferReviewOpen}
+        onChanged={refreshTransfers}
+      />
 
       {/* Search + Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
@@ -450,8 +552,15 @@ export default function TransactionsPage() {
                       />
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm">{formatDate(txn.transaction_date)}</TableCell>
-                    <TableCell className="max-w-[280px] truncate text-sm" title={txn.description}>
-                      {txn.description}
+                    <TableCell className="max-w-[280px] text-sm" title={txn.description}>
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate">{txn.description}</span>
+                        {txn.is_transfer && (
+                          <Badge variant="outline" className="shrink-0 text-[10px] px-1.5 py-0 gap-0.5 border-slate-400 text-slate-500">
+                            <ArrowLeftRight className="h-2.5 w-2.5" /> Transfer
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">{txn.bank_name}</Badge>
@@ -652,6 +761,12 @@ export default function TransactionsPage() {
                 ))}
               </PopoverContent>
             </Popover>
+            {/* Manual link as transfer — only when exactly 2 selected */}
+            {selectedIds.size === 2 && (
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleManualLink}>
+                <Link2 className="mr-1 h-3 w-3" /> Link as Transfer
+              </Button>
+            )}
             <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setSelectedIds(new Set())}>
               <X className="mr-1 h-3 w-3" /> Clear
             </Button>

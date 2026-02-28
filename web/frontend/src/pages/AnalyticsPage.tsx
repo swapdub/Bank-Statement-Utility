@@ -154,7 +154,11 @@ export default function AnalyticsPage() {
   const toggleTag = (id: number) =>
     setFilters({ tagIds: filters.tagIds.includes(id) ? filters.tagIds.filter((t) => t !== id) : [...filters.tagIds, id] });
 
-  if (loading) {
+  // On first load with no data yet, show the empty/upload state
+  // But DON'T unmount the whole page on filter change — that closes dropdowns
+  const isFirstLoad = !summary && loading;
+
+  if (isFirstLoad) {
     return (
       <div className="py-20 text-center text-muted-foreground">Loading analytics...</div>
     );
@@ -419,6 +423,7 @@ export default function AnalyticsPage() {
       </Card>
 
       {/* ── Summary Cards ────────────────────────────────────────────────────── */}
+      <div className={`transition-opacity duration-200 ${loading ? "opacity-40 pointer-events-none" : ""}`}>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -711,6 +716,7 @@ export default function AnalyticsPage() {
           </div>
         </CardContent>
       </Card>
+      </div>{/* end loading overlay wrapper */}
     </div>
   );
 }
