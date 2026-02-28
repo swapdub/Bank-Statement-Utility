@@ -112,8 +112,8 @@ SUPPORTED_BANKS = [
     {
         "name": "KOTAK",
         "account_types": [
-            {"type": "Saving",     "formats": ["CSV"]},
-            {"type": "Current",    "formats": ["CSV"]},
+            {"type": "Saving",     "formats": ["CSV", "PDF"]},
+            {"type": "Current",    "formats": ["CSV", "PDF"]},
             {"type": "Creditcard", "formats": ["PDF"]},
         ],
     },
@@ -166,14 +166,17 @@ def _get_processor(bank_name: str, source: str, filepath: str):
     elif bank_name == "KOTAK":
         if source_cap in ("Saving", "Current"):
             ext = os.path.splitext(filepath)[1].lower()
-            if ext != ".csv":
+            if ext == ".csv":
+                cls = _load_processor("KotakDebitStatementProcessor", "KotakDebitStatementProcessor")
+                return cls(filepath, source_cap)
+            elif ext == ".pdf":
+                cls = _load_processor("KotakDebitPdfStatementProcessor", "KotakDebitPdfStatementProcessor")
+                return cls(filepath, source_cap)
+            else:
                 raise ValueError(
-                    f"Kotak Savings/Current statements must be uploaded as CSV files "
-                    f"(received '{ext or 'unknown'}'). "
-                    f"Please export a CSV from Kotak NetBanking."
+                    f"Kotak Savings/Current statements must be CSV or PDF files "
+                    f"(received '{ext or 'unknown'}')."
                 )
-            cls = _load_processor("KotakDebitStatementProcessor", "KotakDebitStatementProcessor")
-            return cls(filepath, source_cap)
         elif source_cap == "Creditcard":
             cls = _load_processor("KotakCcStatementProcessor", "KotakCcStatementProcessor")
             return cls(filepath, source_cap)
