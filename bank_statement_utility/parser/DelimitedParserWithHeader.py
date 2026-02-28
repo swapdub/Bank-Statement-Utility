@@ -24,13 +24,27 @@ class DelimitedParserWithHeader(IParser):
         self.header = self.__get_header()
 
     def __get_header(self):
-        while not (line := self.file.readline().strip()):
-            # truncating blank line
-            line.strip()
+        # Skip blank lines at start; raise on EOF
+        while True:
+            raw = self.file.readline()
+            if raw == "":  # EOF
+                raise ValueError(
+                    "Reached end of file before finding any content. "
+                    "Make sure the correct file format is selected."
+                )
+            line = raw.strip()
+            if line:
+                break
 
         if self.record_start_with:
             while not line.startswith(self.record_start_with):
-                line = self.file.readline().strip()
+                raw = self.file.readline()
+                if raw == "":  # EOF
+                    raise ValueError(
+                        f"Could not find record header starting with '{self.record_start_with}'. "
+                        f"Make sure you selected the correct bank, account type, and file format."
+                    )
+                line = raw.strip()
 
         line_array = line.split(self.delimiter)
         return list(map(lambda l: l.strip(), line_array))  # stripping values across values

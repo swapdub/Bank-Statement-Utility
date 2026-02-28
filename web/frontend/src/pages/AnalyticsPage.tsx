@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Tag as TagIcon,
   Layers,
+  Upload,
 } from "lucide-react";
 import {
   PieChart,
@@ -160,11 +161,71 @@ export default function AnalyticsPage() {
   }
 
   if (!summary || summary.transaction_count === 0) {
+    const hasActiveFilters =
+      filters.dateFrom || filters.dateTo || filters.bankName ||
+      filters.categoryIds.length > 0 || filters.tagIds.length > 0;
     return (
-      <div className="flex flex-col items-center py-20 text-center text-muted-foreground">
-        <AlertCircle className="mb-4 h-12 w-12" />
-        <h2 className="text-lg font-semibold">No data yet</h2>
-        <p>Upload bank statements to see spending analytics.</p>
+      <div className="space-y-6">
+        {/* Still render the filter panel so users can adjust/clear filters */}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Spending Analytics</h1>
+        </div>
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              {PRESETS.map((p) => (
+                <Button
+                  key={p.label}
+                  size="sm"
+                  variant={filters.preset === (p.months === 0 ? "all" : p.label) ? "default" : "outline"}
+                  className="h-7 px-3 text-xs"
+                  onClick={() => applyPreset(p.months, p.label)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input type="date" className="h-8 w-36 text-xs" value={filters.dateFrom}
+                onChange={(e) => setFilters({ dateFrom: e.target.value, preset: "" })} />
+              <span className="text-xs text-muted-foreground">to</span>
+              <Input type="date" className="h-8 w-36 text-xs" value={filters.dateTo}
+                onChange={(e) => setFilters({ dateTo: e.target.value, preset: "" })} />
+              {hasActiveFilters && (
+                <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground"
+                  onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], tagIds: [], preset: "" })}>
+                  × Clear all filters
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-col items-center py-16 text-center text-muted-foreground">
+          <AlertCircle className="mb-4 h-12 w-12" />
+          {hasActiveFilters ? (
+            <>
+              <h2 className="text-lg font-semibold">No results for current filters</h2>
+              <p className="mb-4 text-sm">Try adjusting your date range or removing filters.</p>
+              <Button variant="outline" onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], tagIds: [], preset: "" })}>
+                Clear All Filters
+              </Button>
+            </>
+          ) : (
+            <>
+              <h2 className="text-lg font-semibold">No data yet</h2>
+              <p className="mb-4 text-sm">Upload bank statements to start seeing your analytics.</p>
+              <div className="flex items-center gap-3">
+                <Button onClick={() => navigate("/upload")}>
+                  <Upload className="mr-2 h-4 w-4" /> Upload Statement
+                </Button>
+                <Button variant="outline" onClick={() => navigate("/transactions")}>
+                  View Transactions
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     );
   }
@@ -262,14 +323,22 @@ export default function AnalyticsPage() {
                   <p className="mb-1.5 px-1 text-xs font-semibold text-muted-foreground">
                     Filter categories (empty = all)
                   </p>
-                  {filters.categoryIds.length > 0 && (
+                  <div className="mb-1 flex gap-1">
                     <button
-                      className="mb-1 flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-                      onClick={() => setFilters({ categoryIds: [] })}
+                      className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                      onClick={() => setFilters({ categoryIds: categories.map((c) => c.id) })}
                     >
-                      × Clear
+                      ✓ All
                     </button>
-                  )}
+                    {filters.categoryIds.length > 0 && (
+                      <button
+                        className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                        onClick={() => setFilters({ categoryIds: [] })}
+                      >
+                        × Clear
+                      </button>
+                    )}
+                  </div>
                   {categories.map((c) => (
                     <label
                       key={c.id}
@@ -303,14 +372,22 @@ export default function AnalyticsPage() {
                   <p className="mb-1.5 px-1 text-xs font-semibold text-muted-foreground">
                     Filter tags (empty = all)
                   </p>
-                  {filters.tagIds.length > 0 && (
+                  <div className="mb-1 flex gap-1">
                     <button
-                      className="mb-1 flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-                      onClick={() => setFilters({ tagIds: [] })}
+                      className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                      onClick={() => setFilters({ tagIds: allTags.map((t) => t.id) })}
                     >
-                      × Clear
+                      ✓ All
                     </button>
-                  )}
+                    {filters.tagIds.length > 0 && (
+                      <button
+                        className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                        onClick={() => setFilters({ tagIds: [] })}
+                      >
+                        × Clear
+                      </button>
+                    )}
+                  </div>
                   {allTags.map((t) => (
                     <label
                       key={t.id}

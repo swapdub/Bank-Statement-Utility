@@ -42,7 +42,7 @@ def upload_statement(
     valid_bank = next((b for b in SUPPORTED_BANKS if b["name"] == bank_name.upper()), None)
     if not valid_bank:
         raise HTTPException(400, f"Unsupported bank: {bank_name}")
-    if account_type.capitalize() not in valid_bank["account_types"]:
+    if account_type.capitalize() not in [a["type"] for a in valid_bank["account_types"]]:
         raise HTTPException(400, f"Unsupported account type '{account_type}' for {bank_name}")
 
     # Save uploaded file to a temp location

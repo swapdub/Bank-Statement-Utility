@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 
 import { getSupportedFormats, uploadStatement } from "@/lib/api";
-import type { BankInfo, UploadResponse } from "@/lib/types";
+import type { BankInfo, BankAccountType, UploadResponse } from "@/lib/types";
 
 export default function UploadPage() {
   const navigate = useNavigate();
@@ -129,23 +129,27 @@ export default function UploadPage() {
                   <SelectValue placeholder="Select account type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {currentBank?.account_types.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
+                {currentBank?.account_types.map((at: BankAccountType) => (
+                    <SelectItem key={at.type} value={at.type}>
+                      {at.type}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {currentBank && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Supported formats:</span>
-                {currentBank.file_formats.map((f) => (
-                  <Badge key={f} variant="secondary">{f}</Badge>
-                ))}
-              </div>
-            )}
+            {currentBank && (() => {
+              const atInfo = currentBank.account_types.find((a) => a.type === selectedAccountType);
+              const formats = atInfo?.formats ?? [];
+              return formats.length > 0 ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Accepted formats:</span>
+                  {formats.map((f) => (
+                    <Badge key={f} variant="secondary">{f}</Badge>
+                  ))}
+                </div>
+              ) : null;
+            })()}
           </CardContent>
         </Card>
 

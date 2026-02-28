@@ -99,14 +99,59 @@ def _load_processor(filename: str, class_name: str):
 
 
 # ── Supported banks metadata (surfaced to the UI) ────────────────────────────
+# account_types is a list of {"type": str, "formats": [str]} so each account
+# type can advertise distinct accepted file formats without duplicating bank rows.
 SUPPORTED_BANKS = [
-    {"name": "HDFC",  "account_types": ["Saving", "Current"],    "file_formats": ["CSV"]},
-    {"name": "KOTAK", "account_types": ["Saving", "Current", "Creditcard"], "file_formats": ["CSV", "PDF"]},
-    {"name": "SBI",   "account_types": ["Saving", "Current", "Creditcard"], "file_formats": ["XLSX", "PDF"]},
-    {"name": "BOB",   "account_types": ["Saving", "Current"],    "file_formats": ["XLS"]},
-    {"name": "IDBI",  "account_types": ["Saving", "Current"],    "file_formats": ["XLS"]},
-    {"name": "SVC",   "account_types": ["Saving", "Current"],    "file_formats": ["XLS"]},
-    {"name": "YES",   "account_types": ["Creditcard"],            "file_formats": ["PDF"]},
+    {
+        "name": "HDFC",
+        "account_types": [
+            {"type": "Saving",  "formats": ["CSV"]},
+            {"type": "Current", "formats": ["CSV"]},
+        ],
+    },
+    {
+        "name": "KOTAK",
+        "account_types": [
+            {"type": "Saving",     "formats": ["CSV"]},
+            {"type": "Current",    "formats": ["CSV"]},
+            {"type": "Creditcard", "formats": ["PDF"]},
+        ],
+    },
+    {
+        "name": "SBI",
+        "account_types": [
+            {"type": "Saving",     "formats": ["XLSX"]},
+            {"type": "Current",    "formats": ["XLSX"]},
+            {"type": "Creditcard", "formats": ["PDF"]},
+        ],
+    },
+    {
+        "name": "BOB",
+        "account_types": [
+            {"type": "Saving",  "formats": ["XLS"]},
+            {"type": "Current", "formats": ["XLS"]},
+        ],
+    },
+    {
+        "name": "IDBI",
+        "account_types": [
+            {"type": "Saving",  "formats": ["XLS"]},
+            {"type": "Current", "formats": ["XLS"]},
+        ],
+    },
+    {
+        "name": "SVC",
+        "account_types": [
+            {"type": "Saving",  "formats": ["XLS"]},
+            {"type": "Current", "formats": ["XLS"]},
+        ],
+    },
+    {
+        "name": "YES",
+        "account_types": [
+            {"type": "Creditcard", "formats": ["PDF"]},
+        ],
+    },
 ]
 
 
@@ -120,6 +165,13 @@ def _get_processor(bank_name: str, source: str, filepath: str):
         return cls(filepath, source_cap)
     elif bank_name == "KOTAK":
         if source_cap in ("Saving", "Current"):
+            ext = os.path.splitext(filepath)[1].lower()
+            if ext != ".csv":
+                raise ValueError(
+                    f"Kotak Savings/Current statements must be uploaded as CSV files "
+                    f"(received '{ext or 'unknown'}'). "
+                    f"Please export a CSV from Kotak NetBanking."
+                )
             cls = _load_processor("KotakDebitStatementProcessor", "KotakDebitStatementProcessor")
             return cls(filepath, source_cap)
         elif source_cap == "Creditcard":

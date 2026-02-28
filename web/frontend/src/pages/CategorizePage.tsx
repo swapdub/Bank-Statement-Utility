@@ -11,6 +11,8 @@ import {
   AlertTriangle,
   Pencil,
   Check,
+  CheckSquare,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -35,6 +37,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -89,8 +96,16 @@ export default function CategorizePage() {
   // Inline editing state for categories/tags
   const [editingCatId, setEditingCatId] = useState<number | null>(null);
   const [editingCatName, setEditingCatName] = useState("");
+  const [editingCatColor, setEditingCatColor] = useState("");
   const [editingTagId, setEditingTagId] = useState<number | null>(null);
   const [editingTagName, setEditingTagName] = useState("");
+  const [editingTagColor, setEditingTagColor] = useState("");
+
+  // Manage-Tags dialog: initial state + pending selection
+  const [dialogInitialSelected, setDialogInitialSelected] = useState<Set<number>>(new Set());
+  const [dialogPendingSelected, setDialogPendingSelected] = useState<Set<number>>(new Set());
+  // Tag filter for keyword list
+  const [filterTagIds, setFilterTagIds] = useState<number[]>([]);
   const [newKwValue, setNewKwValue] = useState("");
 
   const [tagAssignOpen, setTagAssignOpen] = useState(false);
@@ -124,6 +139,11 @@ export default function CategorizePage() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Tag-filtered view of the keyword list (client-side)
+  const visibleKeywords = filterTagIds.length === 0
+    ? keywords
+    : keywords.filter((kw) => filterTagIds.some((tid) => kw.tags.some((t) => t.id === tid)));
+
   // Selection helpers
   const toggleSelect = (id: number) =>
     setSelectedIds((prev) => {
@@ -133,10 +153,10 @@ export default function CategorizePage() {
     });
 
   const selectAll = () => {
-    if (selectedIds.size === keywords.length) {
+    if (selectedIds.size === visibleKeywords.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(keywords.map((k) => k.id)));
+      setSelectedIds(new Set(visibleKeywords.map((k) => k.id)));
     }
   };
 
@@ -154,27 +174,6 @@ export default function CategorizePage() {
     }
   };
 
-  const handleBulkTagAdd = async (tagId: number) => {
-    if (selectedIds.size === 0) return toast.error("Select keywords first");
-    try {
-      await bulkUpdateTags([...selectedIds], [tagId]);
-      toast.success("Tags added");
-      refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to add tags");
-    }
-  };
-
-  const handleBulkTagRemove = async (tagId: number) => {
-    if (selectedIds.size === 0) return toast.error("Select keywords first");
-    try {
-      await bulkUpdateTags([...selectedIds], [], [tagId]);
-      toast.success("Tags removed");
-      refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove tags");
-    }
-  };
 
   const handleApplyCategories = async () => {
     const res = await applyKeywordCategories();
@@ -185,17 +184,17 @@ export default function CategorizePage() {
 
   const handleSaveCatName = async (id: number) => {
     if (!editingCatName.trim()) return;
-    await updateCategory(id, { name: editingCatName.trim() });
+    await updateCategory(id, { name: editingCatName.trim(), color: editingCatColor || undefined });
     setEditingCatId(null);
-    toast.success("Category renamed");
+    toast.success("Category updated");
     refresh();
   };
 
   const handleSaveTagName = async (id: number) => {
     if (!editingTagName.trim()) return;
-    await updateTag(id, { name: editingTagName.trim() });
+    await updateTag(id, { name: editingTagName.trim(), color: editingTagColor || undefined });
     setEditingTagId(null);
-    toast.success("Tag renamed");
+    toast.success("Tag updated");
     refresh();
   };
 
@@ -310,6 +309,63 @@ export default function CategorizePage() {
               </SelectContent>
             </Select>
 
+            {/* Tag filter */}
+            {tags.length > 0 && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9 gap-1">
+                    <Tag className="h-3.5 w-3.5" />
+                    {filterTagIds.length === 0
+                      ? "All tags"
+                      : `${filterTagIds.length} tag${filterTagIds.length > 1 ? "s" : ""}`}
+                    <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-52 p-2" align="start">
+                  <p className="mb-1.5 px-1 text-xs font-semibold text-muted-foreground">Filter by tag</p>
+                  <div className="mb-1 flex gap-1">
+                    <button
+                      className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                      onClick={() => setFilterTagIds(tags.map((t) => t.id))}
+                    >
+                      ✓ All
+                    </button>
+                    {filterTagIds.length > 0 && (
+                      <button
+                        className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
+                        onClick={() => setFilterTagIds([])}
+                      >
+                        × Clear
+                      </button>
+                    )}
+                  </div>
+                  {tags.map((t) => (
+                    <label
+                      key={t.id}
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
+                    >
+                      <Checkbox
+                        checked={filterTagIds.includes(t.id)}
+                        onCheckedChange={() =>
+                          setFilterTagIds((prev) =>
+                            prev.includes(t.id)
+                              ? prev.filter((id) => id !== t.id)
+                              : [...prev, t.id]
+                          )
+                        }
+                        className="h-3.5 w-3.5"
+                      />
+                      <span
+                        className="inline-block h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: t.color || "#6366f1" }}
+                      />
+                      {t.name}
+                    </label>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            )}
+
             <div className="flex items-center gap-1">
               <label className="text-xs text-muted-foreground whitespace-nowrap">Min freq:</label>
               <Input
@@ -320,6 +376,20 @@ export default function CategorizePage() {
                 min={1}
               />
             </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={selectAll}
+              disabled={visibleKeywords.length === 0}
+              title={selectedIds.size === visibleKeywords.length && visibleKeywords.length > 0 ? "Clear selection" : "Select all visible keywords"}
+            >
+              {selectedIds.size === visibleKeywords.length && visibleKeywords.length > 0 ? (
+                <><X className="mr-1 h-3 w-3" /> Clear</>
+              ) : (
+                <><CheckSquare className="mr-1 h-3 w-3" /> Select All</>
+              )}
+            </Button>
 
             <Dialog open={newKwOpen} onOpenChange={setNewKwOpen}>
               <DialogTrigger asChild>
@@ -371,38 +441,124 @@ export default function CategorizePage() {
                 </Select>
 
                 {/* Tag actions */}
-                <Dialog open={tagAssignOpen} onOpenChange={setTagAssignOpen}>
+                <Dialog
+                  open={tagAssignOpen}
+                  onOpenChange={(open) => {
+                    setTagAssignOpen(open);
+                    if (open) {
+                      // Determine which tags ALL selected keywords already have
+                      const selKws = visibleKeywords.filter((kw) => selectedIds.has(kw.id));
+                      const allHave = new Set(
+                        tags
+                          .filter(
+                            (tag) =>
+                              selKws.length > 0 &&
+                              selKws.every((kw) => kw.tags.some((t) => t.id === tag.id))
+                          )
+                          .map((tag) => tag.id)
+                      );
+                      setDialogInitialSelected(allHave);
+                      setDialogPendingSelected(new Set(allHave));
+                    } else {
+                      setDialogInitialSelected(new Set());
+                      setDialogPendingSelected(new Set());
+                    }
+                  }}
+                >
                   <DialogTrigger asChild>
                     <Button variant="outline" size="sm"><Tag className="mr-1 h-3 w-3" /> Tags</Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="max-w-md">
                     <DialogHeader>
-                      <DialogTitle>Manage Tags for {selectedIds.size} keywords</DialogTitle>
-                      <DialogDescription>Click to add or remove tags from selected keywords.</DialogDescription>
+                      <DialogTitle>Manage Tags — {selectedIds.size} keyword{selectedIds.size > 1 ? "s" : ""} selected</DialogTitle>
+                      <DialogDescription>
+                        Tags shown in × are applied to all selected keywords. Toggle to add or remove, then Apply.
+                      </DialogDescription>
                     </DialogHeader>
-                    <div className="flex flex-wrap gap-2 py-4">
-                      {tags.map((t) => (
-                        <div key={t.id} className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => { handleBulkTagAdd(t.id); setTagAssignOpen(false); }}
-                          >
-                            <Plus className="mr-1 h-3 w-3" /> {t.name}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => { handleBulkTagRemove(t.id); setTagAssignOpen(false); }}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      ))}
-                      {tags.length === 0 && (
-                        <p className="text-sm text-muted-foreground">No tags yet. Create one in the Tags tab.</p>
-                      )}
+
+                    <div className="py-2">
+                      <div className="flex flex-wrap gap-2">
+                        {[...tags]
+                          .sort((a, b) =>
+                            dialogPendingSelected.has(b.id) && !dialogPendingSelected.has(a.id)
+                              ? 1
+                              : dialogPendingSelected.has(a.id) && !dialogPendingSelected.has(b.id)
+                              ? -1
+                              : 0
+                          )
+                          .map((t) => {
+                            const active = dialogPendingSelected.has(t.id);
+                            return (
+                              <button
+                                key={t.id}
+                                onClick={() =>
+                                  setDialogPendingSelected((prev) => {
+                                    const next = new Set(prev);
+                                    next.has(t.id) ? next.delete(t.id) : next.add(t.id);
+                                    return next;
+                                  })
+                                }
+                                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-all duration-200 ${
+                                  active
+                                    ? "border-transparent text-white shadow-sm"
+                                    : "border-border bg-background hover:bg-muted text-foreground"
+                                }`}
+                                style={active ? { backgroundColor: t.color || "#6366f1" } : {}}
+                              >
+                                <span
+                                  className={`inline-flex transition-transform duration-200 ${
+                                    active ? "rotate-45" : ""
+                                  }`}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </span>
+                                {t.name}
+                              </button>
+                            );
+                          })}
+                        {tags.length === 0 && (
+                          <p className="text-sm text-muted-foreground">No tags yet. Create one in the Tags tab.</p>
+                        )}
+                      </div>
                     </div>
+
+                    <DialogFooter>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setTagAssignOpen(false);
+                          setDialogInitialSelected(new Set());
+                          setDialogPendingSelected(new Set());
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        disabled={!(
+                          [...dialogPendingSelected].some((id) => !dialogInitialSelected.has(id)) ||
+                          [...dialogInitialSelected].some((id) => !dialogPendingSelected.has(id))
+                        )}
+                        onClick={async () => {
+                          const toAdd = [...dialogPendingSelected].filter((id) => !dialogInitialSelected.has(id));
+                          const toRemove = [...dialogInitialSelected].filter((id) => !dialogPendingSelected.has(id));
+                          if (toAdd.length > 0 || toRemove.length > 0) {
+                            await bulkUpdateTags([...selectedIds], toAdd, toRemove);
+                            const parts: string[] = [];
+                            if (toAdd.length > 0) parts.push(`+${toAdd.length} added`);
+                            if (toRemove.length > 0) parts.push(`−${toRemove.length} removed`);
+                            toast.success(
+                              `${parts.join(", ")} on ${selectedIds.size} keyword${selectedIds.size > 1 ? "s" : ""}`
+                            );
+                            refresh();
+                          }
+                          setTagAssignOpen(false);
+                          setDialogInitialSelected(new Set());
+                          setDialogPendingSelected(new Set());
+                        }}
+                      >
+                        Apply
+                      </Button>
+                    </DialogFooter>
                   </DialogContent>
                 </Dialog>
 
@@ -421,7 +577,7 @@ export default function CategorizePage() {
                   {/* Header */}
                   <div className="flex items-center gap-3 px-4 py-2 bg-muted/50 sticky top-0">
                     <Checkbox
-                      checked={keywords.length > 0 && selectedIds.size === keywords.length}
+                      checked={visibleKeywords.length > 0 && selectedIds.size === visibleKeywords.length}
                       onCheckedChange={selectAll}
                     />
                     <span className="flex-1 text-xs font-semibold text-muted-foreground uppercase">Keyword</span>
@@ -438,7 +594,7 @@ export default function CategorizePage() {
                       No keywords found. Upload statements to extract keywords.
                     </div>
                   ) : (
-                    keywords.map((kw) => (
+                    visibleKeywords.map((kw) => (
                       <div
                         key={kw.id}
                         className={`flex items-center gap-3 px-4 py-2 hover:bg-muted/30 transition-colors ${
@@ -538,6 +694,19 @@ export default function CategorizePage() {
                   <div className="flex items-center justify-between">
                     {editingCatId === cat.id ? (
                       <div className="flex items-center gap-1 flex-1 mr-2">
+                        {/* Color picker inline while editing */}
+                        <label className="cursor-pointer shrink-0" title="Change color">
+                          <span
+                            className="inline-block h-6 w-6 rounded border border-border"
+                            style={{ backgroundColor: editingCatColor || cat.color || "#ccc" }}
+                          />
+                          <input
+                            type="color"
+                            className="sr-only"
+                            value={editingCatColor || cat.color || "#6366f1"}
+                            onChange={(e) => setEditingCatColor(e.target.value)}
+                          />
+                        </label>
                         <Input
                           autoFocus
                           className="h-7 text-sm"
@@ -547,20 +716,35 @@ export default function CategorizePage() {
                             if (e.key === "Enter") handleSaveCatName(cat.id);
                             if (e.key === "Escape") setEditingCatId(null);
                           }}
-                          onBlur={() => handleSaveCatName(cat.id)}
                         />
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleSaveCatName(cat.id)}>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => handleSaveCatName(cat.id)}>
                           <Check className="h-3 w-3" />
                         </Button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1">
+                        {/* Clickable color dot — opens native color picker */}
+                        <label className="cursor-pointer" title="Change color">
+                          <span
+                            className="inline-block h-3 w-3 rounded-full ring-1 ring-inset ring-black/10"
+                            style={{ backgroundColor: cat.color || "#ccc" }}
+                          />
+                          <input
+                            type="color"
+                            className="sr-only"
+                            value={cat.color || "#6366f1"}
+                            onChange={async (e) => {
+                              await updateCategory(cat.id, { color: e.target.value });
+                              refresh();
+                            }}
+                          />
+                        </label>
                         <CardTitle className="text-base">{cat.name}</CardTitle>
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                          onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); }}
+                          onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); setEditingCatColor(cat.color || ""); }}
                         >
                           <Pencil className="h-3 w-3" />
                         </Button>
@@ -674,36 +858,67 @@ export default function CategorizePage() {
               <Card key={tag.id} className="group">
                 <CardContent className="flex items-center justify-between pt-4">
                   <div className="flex items-center gap-2 flex-1">
-                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: tag.color || "#ccc" }} />
                     {editingTagId === tag.id ? (
-                      <div className="flex items-center gap-1 flex-1">
-                        <Input
-                          autoFocus
-                          className="h-7 text-sm"
-                          value={editingTagName}
-                          onChange={(e) => setEditingTagName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSaveTagName(tag.id);
-                            if (e.key === "Escape") setEditingTagId(null);
-                          }}
-                          onBlur={() => handleSaveTagName(tag.id)}
-                        />
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleSaveTagName(tag.id)}>
-                          <Check className="h-3 w-3" />
-                        </Button>
-                      </div>
+                      <>
+                        {/* Color picker while editing */}
+                        <label className="cursor-pointer shrink-0" title="Change color">
+                          <span
+                            className="inline-block h-6 w-6 rounded border border-border"
+                            style={{ backgroundColor: editingTagColor || tag.color || "#ccc" }}
+                          />
+                          <input
+                            type="color"
+                            className="sr-only"
+                            value={editingTagColor || tag.color || "#6366f1"}
+                            onChange={(e) => setEditingTagColor(e.target.value)}
+                          />
+                        </label>
+                        <div className="flex items-center gap-1 flex-1">
+                          <Input
+                            autoFocus
+                            className="h-7 text-sm"
+                            value={editingTagName}
+                            onChange={(e) => setEditingTagName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSaveTagName(tag.id);
+                              if (e.key === "Escape") setEditingTagId(null);
+                            }}
+                          />
+                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => handleSaveTagName(tag.id)}>
+                            <Check className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </>
                     ) : (
-                      <div className="flex items-center gap-1">
-                        <span className="font-medium">{tag.name}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                          onClick={() => { setEditingTagId(tag.id); setEditingTagName(tag.name); }}
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                      </div>
+                      <>
+                        {/* Clickable color dot */}
+                        <label className="cursor-pointer shrink-0" title="Change color">
+                          <span
+                            className="inline-block h-3 w-3 rounded-full ring-1 ring-inset ring-black/10"
+                            style={{ backgroundColor: tag.color || "#ccc" }}
+                          />
+                          <input
+                            type="color"
+                            className="sr-only"
+                            value={tag.color || "#6366f1"}
+                            onChange={async (e) => {
+                              await updateTag(tag.id, { color: e.target.value });
+                              refresh();
+                            }}
+                          />
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <span className="font-medium">{tag.name}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                            onClick={() => { setEditingTagId(tag.id); setEditingTagName(tag.name); setEditingTagColor(tag.color || ""); }}
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </>
                     )}
                   </div>
                   <Button

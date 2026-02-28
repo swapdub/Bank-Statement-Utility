@@ -1,9 +1,13 @@
 // TypeScript types matching the backend Pydantic schemas
 
+export interface BankAccountType {
+  type: string;
+  formats: string[];
+}
+
 export interface BankInfo {
   name: string;
-  account_types: string[];
-  file_formats: string[];
+  account_types: BankAccountType[];
 }
 
 export interface SupportedFormatsResponse {

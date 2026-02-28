@@ -191,10 +191,14 @@ class AnalyticsSummary(BaseModel):
 
 
 # ── Supported formats info ────────────────────────────────────────────────────
+class AccountTypeInfo(BaseModel):
+    type: str
+    formats: list[str]
+
+
 class BankInfo(BaseModel):
     name: str
-    account_types: list[str]
-    file_formats: list[str]
+    account_types: list[AccountTypeInfo]
 
 
 class SupportedFormatsResponse(BaseModel):
