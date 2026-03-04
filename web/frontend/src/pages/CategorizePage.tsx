@@ -398,10 +398,13 @@ export default function CategorizePage() {
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Add Keyword</DialogTitle>
-                  <DialogDescription>Add a custom keyword for categorization.</DialogDescription>
+                  <DialogDescription>
+                    Add a custom keyword for categorization. Single words use word-boundary matching.
+                    Multi-word phrases (e.g. <strong>SWIGGY FOOD</strong>) use substring matching.
+                  </DialogDescription>
                 </DialogHeader>
                 <Input
-                  placeholder="e.g. SWIGGY"
+                  placeholder="e.g. SWIGGY or SWIGGY FOOD"
                   value={newKwValue}
                   onChange={(e) => setNewKwValue(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleCreateKeyword()}
@@ -605,7 +608,14 @@ export default function CategorizePage() {
                           checked={selectedIds.has(kw.id)}
                           onCheckedChange={() => toggleSelect(kw.id)}
                         />
-                        <span className="flex-1 font-mono text-sm font-medium">{kw.keyword}</span>
+                        <span className="flex-1 font-mono text-sm font-medium flex items-center gap-1.5">
+                            {kw.keyword}
+                            {kw.keyword.includes(" ") && (
+                              <span className="rounded border border-violet-400/60 bg-violet-50 px-1 py-0.5 text-[10px] font-semibold text-violet-600 dark:bg-violet-950/40 dark:text-violet-400">
+                                phrase
+                              </span>
+                            )}
+                          </span>
                         <span className="w-16 text-center">
                           <Badge variant="secondary">{kw.frequency}</Badge>
                         </span>

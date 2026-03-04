@@ -6,6 +6,7 @@ import {
   RotateCcw,
   Loader2,
   Unlink,
+  ExternalLink,
 } from "lucide-react";
 import {
   Dialog,
@@ -34,23 +35,37 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChanged: () => void; // refresh transactions after actions
+  onGoToTransaction?: (txnId: number, txnDate: string) => void;
 }
 
 /** A single transaction side (debit or credit) inside the pair card. */
 function TxnSide({
   txn,
   type,
+  onView,
 }: {
   txn: TransferLink["debit_txn"];
   type: "debit" | "credit";
+  onView?: () => void;
 }) {
   return (
     <div className="rounded-md bg-muted/40 p-3 space-y-1.5 min-w-0">
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="rounded border px-1.5 py-0.5 text-[11px] font-medium leading-none">
-          {txn.bank_name}
-        </span>
-        <span className="text-[11px] text-muted-foreground">{txn.account_type}</span>
+      <div className="flex items-center gap-1.5 flex-wrap justify-between">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="rounded border px-1.5 py-0.5 text-[11px] font-medium leading-none">
+            {txn.bank_name}
+          </span>
+          <span className="text-[11px] text-muted-foreground">{txn.account_type}</span>
+        </div>
+        {onView && (
+          <button
+            onClick={onView}
+            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            title="View in Transactions"
+          >
+            <ExternalLink className="h-3 w-3" /> View
+          </button>
+        )}
       </div>
       {/* Description — wraps, never truncates */}
       <p className="text-sm font-medium leading-snug break-words">{txn.description}</p>
@@ -74,9 +89,11 @@ function TxnSide({
 function TransferPairCard({
   link,
   actions,
+  onGoToTransaction,
 }: {
   link: TransferLink;
   actions: React.ReactNode;
+  onGoToTransaction?: (txnId: number, txnDate: string) => void;
 }) {
   return (
     <div className="rounded-lg border bg-card">
@@ -85,7 +102,11 @@ function TransferPairCard({
         <div className="flex flex-col sm:flex-row sm:items-stretch gap-2">
           {/* Debit side */}
           <div className="flex-1 min-w-0">
-            <TxnSide txn={link.debit_txn} type="debit" />
+            <TxnSide
+              txn={link.debit_txn}
+              type="debit"
+              onView={onGoToTransaction ? () => onGoToTransaction(link.debit_txn.id, link.debit_txn.transaction_date) : undefined}
+            />
           </div>
           {/* Arrow + confidence */}
           <div className="flex sm:flex-col items-center justify-center gap-1 py-1 sm:py-0 sm:px-1">
@@ -98,7 +119,11 @@ function TransferPairCard({
           </div>
           {/* Credit side */}
           <div className="flex-1 min-w-0">
-            <TxnSide txn={link.credit_txn} type="credit" />
+            <TxnSide
+              txn={link.credit_txn}
+              type="credit"
+              onView={onGoToTransaction ? () => onGoToTransaction(link.credit_txn.id, link.credit_txn.transaction_date) : undefined}
+            />
           </div>
         </div>
       </div>
@@ -110,7 +135,7 @@ function TransferPairCard({
   );
 }
 
-export default function TransferReviewDialog({ open, onOpenChange, onChanged }: Props) {
+export default function TransferReviewDialog({ open, onOpenChange, onChanged, onGoToTransaction }: Props) {
   const [tab, setTab] = useState<"suggested" | "confirmed" | "denied">("suggested");
   const [suggestions, setSuggestions] = useState<TransferLink[]>([]);
   const [confirmed, setConfirmed] = useState<TransferLink[]>([]);
@@ -239,6 +264,7 @@ export default function TransferReviewDialog({ open, onOpenChange, onChanged }: 
                     <TransferPairCard
                       key={link.id}
                       link={link}
+                      onGoToTransaction={onGoToTransaction}
                       actions={
                         <>
                           <Button
@@ -280,6 +306,7 @@ export default function TransferReviewDialog({ open, onOpenChange, onChanged }: 
                     <TransferPairCard
                       key={link.id}
                       link={link}
+                      onGoToTransaction={onGoToTransaction}
                       actions={
                         <Button
                           size="sm"
@@ -311,6 +338,7 @@ export default function TransferReviewDialog({ open, onOpenChange, onChanged }: 
                     <TransferPairCard
                       key={link.id}
                       link={link}
+                      onGoToTransaction={onGoToTransaction}
                       actions={
                         <Button
                           size="sm"

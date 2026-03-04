@@ -39,6 +39,7 @@ class TransactionOut(BaseModel):
     category_name: Optional[str] = None
     is_transfer: bool = False
     transfer_link_id: Optional[int] = None
+    transfer_counterpart_id: Optional[int] = None
     tags: list["TagOut"] = []
 
     model_config = {"from_attributes": True}

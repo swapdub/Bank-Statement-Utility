@@ -104,6 +104,24 @@ def match_transaction_keywords(description: str, known_keywords: set[str]) -> li
     """
     Given a transaction description and a set of known keywords,
     return which keywords appear in this description.
+
+    Matching strategy:
+    - Single-word keywords: use tokenization (word-boundary, same as extraction).
+    - Multi-word keywords (contain a space): use regex word-boundary substring match
+      against the uppercased description (so "SWIGGY FOOD" matches in "UPI SWIGGY FOOD ORDER").
     """
+    import re as _re
+    upper_desc = description.upper()
     tokens = set(_tokenize(description))
-    return sorted(tokens & known_keywords)
+
+    matched: list[str] = []
+    for kw in known_keywords:
+        if " " in kw:
+            # Phrase match with word boundaries
+            if _re.search(r"\b" + _re.escape(kw) + r"\b", upper_desc):
+                matched.append(kw)
+        else:
+            # Single-word token match
+            if kw in tokens:
+                matched.append(kw)
+    return sorted(matched)

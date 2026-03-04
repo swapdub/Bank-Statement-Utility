@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
   Search,
   ChevronLeft,
@@ -12,8 +12,9 @@ import {
   ArrowLeftRight,
   Link2,
   Loader2,
+  Plus,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,7 @@ import { toast } from "sonner";
 
 import {
   getTransactions,
+  getTransactionAggregate,
   getCategories,
   getSupportedFormats,
   getTags,
@@ -62,6 +64,7 @@ import TransferReviewDialog from "@/components/TransferReviewDialog";
 
 export default function TransactionsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { filters: ctxFilters, set: setCtxFilters } = useTransactionFilters();
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -72,6 +75,9 @@ export default function TransactionsPage() {
   const [allTags, setAllTags] = useState<TagType[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [highlightedTxnId, setHighlightedTxnId] = useState<number | null>(null);
+  const [aggregate, setAggregate] = useState<{ debit_sum: number; credit_sum: number; net: number; count: number } | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Transfer state
   const [transferCounts, setTransferCounts] = useState<TransferCounts>({ suggested: 0, confirmed: 0, denied: 0 });
@@ -113,6 +119,32 @@ export default function TransactionsPage() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [filters]);
+
+  // Fetch aggregate sums whenever filters change (excluding pagination)
+  useEffect(() => {
+    getTransactionAggregate(filters)
+      .then(setAggregate)
+      .catch(() => setAggregate(null));
+  }, [filters]);
+
+  // Handle navigation from TransferReviewDialog "View" button
+  useEffect(() => {
+    const state = location.state as { goToTxnId?: number; txnDate?: string } | null;
+    if (state?.goToTxnId) {
+      const txnId = state.goToTxnId;
+      const txnDate = state.txnDate;
+      // Clear state so refresh doesn't re-trigger
+      window.history.replaceState({}, "");
+      // Filter to just that date so we land on page 1 with the txn visible
+      if (txnDate) {
+        setFilters({ page: 1, page_size: 50, sort_by: "transaction_date", sort_order: "desc", date_from: txnDate, date_to: txnDate });
+      }
+      // Schedule highlight — data will arrive shortly after filter change
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      setHighlightedTxnId(txnId);
+      highlightTimerRef.current = setTimeout(() => setHighlightedTxnId(null), 3000);
+    }
+  }, [location.state]);
 
   const totalPages = Math.ceil(total / (filters.page_size || 50));
 
@@ -313,6 +345,43 @@ export default function TransactionsPage() {
     }
   };
 
+  // ── Highlight a transaction row (with auto-clear) ────────────────────────
+  const highlightTxn = useCallback((txnId: number) => {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    setHighlightedTxnId(txnId);
+    highlightTimerRef.current = setTimeout(() => setHighlightedTxnId(null), 2500);
+    // Scroll to the highlighted row
+    setTimeout(() => {
+      const el = document.getElementById(`txn-row-${txnId}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+  }, []);
+
+  // ── Handle Transfer badge click — highlight counterpart if visible ───────
+  const handleTransferBadgeClick = useCallback((txn: Transaction, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const counterpartId = txn.transfer_counterpart_id;
+    if (!counterpartId) return;
+    const onPage = transactions.find((t) => t.id === counterpartId);
+    if (onPage) {
+      highlightTxn(counterpartId);
+    } else {
+      // Navigate to find counterpart
+      navigate("/transactions", { state: { goToTxnId: counterpartId } });
+    }
+  }, [transactions, highlightTxn, navigate]);
+
+  // ── Handle "View" button from TransferReviewDialog ───────────────────────
+  const handleGoToTransaction = useCallback((txnId: number, txnDate: string) => {
+    setTransferReviewOpen(false);
+    const onPage = transactions.find((t) => t.id === txnId);
+    if (onPage) {
+      highlightTxn(txnId);
+    } else {
+      navigate("/transactions", { state: { goToTxnId: txnId, txnDate } });
+    }
+  }, [transactions, highlightTxn, navigate]);
+
   // ── Transfer helpers ─────────────────────────────────────────────────────
   const refreshTransfers = () => {
     getTransferCounts().then(setTransferCounts).catch(console.error);
@@ -430,6 +499,7 @@ export default function TransactionsPage() {
         open={transferReviewOpen}
         onOpenChange={setTransferReviewOpen}
         onChanged={refreshTransfers}
+        onGoToTransaction={handleGoToTransaction}
       />
 
       {/* Search bar */}
@@ -514,8 +584,8 @@ export default function TransactionsPage() {
                   <ChevronDown className="ml-1 h-3 w-3 opacity-50" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-52 p-2" align="start">
-                <div className="mb-1 flex gap-1">
+              <PopoverContent className="w-52 p-2 max-h-72 overflow-y-auto" align="start" side="bottom" sideOffset={4}>
+                <div className="mb-1 flex gap-1 sticky top-0 bg-popover z-10">
                   <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
                     onClick={() => setFilters((prev) => ({ ...prev, category_ids: categories.map((c) => c.id).join(","), category_id: undefined, uncategorized: undefined, page: 1 }))}>
                     ✓ All
@@ -617,6 +687,30 @@ export default function TransactionsPage() {
         </CardContent>
       </Card>
 
+      {/* Summary bar */}
+      {aggregate && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/30 px-4 py-2 text-sm">
+          <span className="text-muted-foreground">
+            {aggregate.count.toLocaleString()} transaction{aggregate.count !== 1 ? "s" : ""} shown
+          </span>
+          <span className="h-4 w-px bg-border hidden sm:block" />
+          <span>
+            <span className="text-muted-foreground">Debits: </span>
+            <span className="font-mono font-medium text-red-600">{formatINR(aggregate.debit_sum)}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Credits: </span>
+            <span className="font-mono font-medium text-green-600">{formatINR(aggregate.credit_sum)}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Net: </span>
+            <span className={`font-mono font-medium ${aggregate.net >= 0 ? "text-green-600" : "text-red-600"}`}>
+              {aggregate.net >= 0 ? "+" : ""}{formatINR(aggregate.net)}
+            </span>
+          </span>
+        </div>
+      )}
+
       {/* Transaction Table */}
       <Card>
         <CardContent className="p-0">
@@ -660,7 +754,14 @@ export default function TransactionsPage() {
                 </TableRow>
               ) : (
                 transactions.map((txn) => (
-                  <TableRow key={txn.id} className={selectedIds.has(txn.id) ? "bg-primary/5" : ""}>
+                  <TableRow
+                    key={txn.id}
+                    id={`txn-row-${txn.id}`}
+                    className={`transition-colors duration-300 ${
+                      selectedIds.has(txn.id) ? "bg-primary/5" :
+                      highlightedTxnId === txn.id ? "bg-yellow-100 dark:bg-yellow-900/30 ring-2 ring-inset ring-yellow-400" : ""
+                    }`}
+                  >
                     <TableCell className="px-4">
                       <Checkbox
                         checked={selectedIds.has(txn.id)}
@@ -672,7 +773,12 @@ export default function TransactionsPage() {
                       <div className="flex items-center gap-1.5">
                         <span className="truncate">{txn.description}</span>
                         {txn.is_transfer && (
-                          <Badge variant="outline" className="shrink-0 text-[10px] px-1.5 py-0 gap-0.5 border-slate-400 text-slate-500">
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 text-[10px] px-1.5 py-0 gap-0.5 border-slate-400 text-slate-500 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            title="Click to highlight counterpart transaction"
+                            onClick={(e) => handleTransferBadgeClick(txn, e)}
+                          >
                             <ArrowLeftRight className="h-2.5 w-2.5" /> Transfer
                           </Badge>
                         )}
@@ -712,7 +818,7 @@ export default function TransactionsPage() {
                             )}
                           </button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-48 p-1" align="start">
+                        <PopoverContent className="w-48 p-1 max-h-72 overflow-y-auto" align="start" side="bottom" sideOffset={4}>
                           <div className="flex flex-col gap-0.5">
                             <button
                               className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted text-muted-foreground"
@@ -734,55 +840,58 @@ export default function TransactionsPage() {
                         </PopoverContent>
                       </Popover>
                     </TableCell>
-                    {/* Tags cell */}
+                    {/* Tags cell — inline chips with × remove, + to add */}
                     <TableCell>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <div className="flex min-w-[60px] cursor-pointer flex-wrap gap-1">
-                            {txn.tags && txn.tags.length > 0 ? (
-                              txn.tags.map((tg) => (
-                                <Badge
-                                  key={tg.id}
-                                  className="border text-xs"
-                                  style={{
-                                    backgroundColor: (tg.color ?? "#6366f1") + "22",
-                                    borderColor: tg.color ?? "#6366f1",
-                                    color: tg.color ?? "#6366f1",
-                                  }}
-                                >
-                                  {tg.name}
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-xs text-muted-foreground hover:text-foreground">+ tag</span>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {txn.tags && txn.tags.map((tg) => (
+                          <span
+                            key={tg.id}
+                            className="inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[11px] font-medium leading-none"
+                            style={{
+                              backgroundColor: (tg.color ?? "#6366f1") + "20",
+                              borderColor: tg.color ?? "#6366f1",
+                              color: tg.color ?? "#6366f1",
+                            }}
+                          >
+                            {tg.name}
+                            <button
+                              className="ml-0.5 rounded-full transition-colors hover:bg-black/10 dark:hover:bg-white/20"
+                              onClick={(e) => { e.stopPropagation(); handleTagToggle(txn, tg.id); }}
+                              aria-label={`Remove ${tg.name}`}
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </span>
+                        ))}
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              className="inline-flex h-5 w-5 items-center justify-center rounded-full border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                              aria-label="Add tag"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-40 p-1 max-h-48 overflow-y-auto" align="start" side="bottom" sideOffset={4}>
+                            {allTags.filter((tg) => !txn.tags?.some((t) => t.id === tg.id)).map((tg) => (
+                              <button
+                                key={tg.id}
+                                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                                onClick={() => handleTagToggle(txn, tg.id)}
+                              >
+                                <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: tg.color ?? "#6366f1" }} />
+                                {tg.name}
+                              </button>
+                            ))}
+                            {allTags.filter((tg) => !txn.tags?.some((t) => t.id === tg.id)).length === 0 && (
+                              <p className="px-2 py-1.5 text-xs text-muted-foreground">All tags applied.</p>
                             )}
-                          </div>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-48 p-1" align="start">
-                          <div className="flex flex-col gap-0.5">
                             {allTags.length === 0 && (
-                              <p className="px-2 py-1.5 text-xs text-muted-foreground">No tags yet. Create tags in Settings.</p>
+                              <p className="px-2 py-1.5 text-xs text-muted-foreground">No tags yet.</p>
                             )}
-                            {allTags.map((tg) => {
-                              const active = txn.tags?.some((t) => t.id === tg.id);
-                              return (
-                                <button
-                                  key={tg.id}
-                                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-                                  onClick={() => handleTagToggle(txn, tg.id)}
-                                >
-                                  <span
-                                    className="inline-block h-2 w-2 shrink-0 rounded-full ring-1"
-                                    style={{ backgroundColor: active ? (tg.color ?? "#6366f1") : "transparent", outline: `2px solid ${tg.color ?? "#6366f1"}`, outlineOffset: "1px" }}
-                                  />
-                                  <span className={active ? "font-medium" : ""}>{tg.name}</span>
-                                  {active && <span className="ml-auto text-xs text-muted-foreground">✓</span>}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </PopoverContent>
-                      </Popover>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

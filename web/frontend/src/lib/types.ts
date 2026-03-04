@@ -43,6 +43,7 @@ export interface Transaction {
   category_name: string | null;
   is_transfer: boolean;
   transfer_link_id: number | null;
+  transfer_counterpart_id: number | null;
   tags: Tag[];
 }
 

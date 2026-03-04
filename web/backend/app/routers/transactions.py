@@ -25,7 +25,8 @@ def get_banks(db: Session = Depends(get_db)):
     return [r[0] for r in rows if r[0]]
 
 
-def _build_query(
+def _apply_filters(
+    q,
     db: Session,
     search: Optional[str] = None,
     bank_name: Optional[str] = None,
@@ -41,7 +42,6 @@ def _build_query(
     bank_names: Optional[str] = None,
     category_ids: Optional[str] = None,
 ):
-    q = db.query(Transaction).options(selectinload(Transaction.tags))
 
     if search:
         q = q.filter(Transaction.description.ilike(f"%{search}%"))
@@ -101,6 +101,73 @@ def _build_query(
     return q
 
 
+def _build_query(
+    db: Session,
+    search: Optional[str] = None,
+    bank_name: Optional[str] = None,
+    account_type: Optional[str] = None,
+    category_id: Optional[int] = None,
+    uncategorized: Optional[bool] = None,
+    tag_ids: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    min_amount: Optional[float] = None,
+    max_amount: Optional[float] = None,
+    amount_type: Optional[str] = None,
+    bank_names: Optional[str] = None,
+    category_ids: Optional[str] = None,
+):
+    q = db.query(Transaction).options(selectinload(Transaction.tags))
+    return _apply_filters(q, db, search, bank_name, account_type, category_id, uncategorized,
+                          tag_ids, date_from, date_to, min_amount, max_amount, amount_type,
+                          bank_names, category_ids)
+
+
+@router.get("/aggregate")
+def get_transaction_aggregate(
+    search: Optional[str] = Query(None),
+    bank_name: Optional[str] = Query(None),
+    account_type: Optional[str] = Query(None),
+    category_id: Optional[int] = Query(None),
+    uncategorized: Optional[bool] = Query(None),
+    tag_ids: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    min_amount: Optional[float] = Query(None),
+    max_amount: Optional[float] = Query(None),
+    amount_type: Optional[str] = Query(None),
+    bank_names: Optional[str] = Query(None),
+    category_ids: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Return aggregate debit/credit sums for the current filter set."""
+    base = db.query(Transaction)
+    q = _apply_filters(base, db, search, bank_name, account_type, category_id, uncategorized,
+                       tag_ids, date_from, date_to, min_amount, max_amount, amount_type,
+                       bank_names, category_ids)
+    result = q.with_entities(
+        func.coalesce(func.sum(Transaction.debit_amount), 0).label("debit_sum"),
+        func.coalesce(func.sum(Transaction.credit_amount), 0).label("credit_sum"),
+        func.count(Transaction.id).label("count"),
+    ).one()
+    debit = float(result.debit_sum)
+    credit = float(result.credit_sum)
+    return {"debit_sum": debit, "credit_sum": credit, "net": credit - debit, "count": result.count}
+
+
+@router.get("/{transaction_id}", response_model=TransactionOut)
+def get_transaction(transaction_id: int, db: Session = Depends(get_db)):
+    """Return a single transaction by ID."""
+    txn = db.query(Transaction).options(selectinload(Transaction.tags)).filter(Transaction.id == transaction_id).first()
+    if not txn:
+        raise HTTPException(404, "Transaction not found")
+    t = TransactionOut.model_validate(txn)
+    if txn.category:
+        t.category_name = txn.category.name
+    t.tags = [TagOut.model_validate(tag) for tag in txn.tags]
+    return t
+
+
 @router.get("/", response_model=TransactionListResponse)
 def list_transactions(
     search: Optional[str] = Query(None),
@@ -143,6 +210,7 @@ def list_transactions(
     txn_ids = [row.id for row in rows]
     # Batch-fetch transfer links for all transactions on this page
     link_map: dict[int, int] = {}
+    counterpart_map: dict[int, int] = {}
     if txn_ids:
         links = db.query(TransferLink).filter(
             TransferLink.status.in_(["suggested", "confirmed"]),
@@ -154,6 +222,8 @@ def list_transactions(
         for lnk in links:
             link_map.setdefault(lnk.debit_txn_id, lnk.id)
             link_map.setdefault(lnk.credit_txn_id, lnk.id)
+            counterpart_map[lnk.debit_txn_id] = lnk.credit_txn_id
+            counterpart_map[lnk.credit_txn_id] = lnk.debit_txn_id
 
     txns = []
     for row in rows:
@@ -162,6 +232,7 @@ def list_transactions(
             t.category_name = row.category.name
         t.tags = [TagOut.model_validate(tag) for tag in row.tags]
         t.transfer_link_id = link_map.get(row.id)
+        t.transfer_counterpart_id = counterpart_map.get(row.id)
         txns.append(t)
 
     return TransactionListResponse(

@@ -112,6 +112,23 @@ export async function getTransactionBanks(): Promise<string[]> {
   return handleResponse(res);
 }
 
+export async function getTransactionAggregate(
+  filters: TransactionFilters = {}
+): Promise<{ debit_sum: number; credit_sum: number; net: number; count: number }> {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "" && !["page", "page_size", "sort_by", "sort_order"].includes(k))
+      params.set(k, String(v));
+  }
+  const res = await fetch(`${BASE}/transactions/aggregate?${params}`);
+  return handleResponse(res);
+}
+
+export async function getTransactionById(id: number): Promise<import("./types").Transaction> {
+  const res = await fetch(`${BASE}/transactions/${id}`);
+  return handleResponse(res);
+}
+
 // ── Categories ───────────────────────────────────────────────────────────────
 
 export async function getCategories(): Promise<Category[]> {
