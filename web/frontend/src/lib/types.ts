@@ -63,6 +63,7 @@ export interface TransactionFilters {
   category_ids?: string;   // comma-separated for multi-select
   uncategorized?: boolean;
   tag_ids?: string;  // comma-separated
+  untagged?: boolean;
   date_from?: string;
   date_to?: string;
   min_amount?: number;
@@ -131,6 +132,7 @@ export interface AnalyticsSummary {
   transaction_count: number;
   categorized_count: number;
   uncategorized_count: number;
+  untagged_count: number;
   category_spending: CategorySpending[];
   tag_spending: TagSpending[];
   monthly_trends: MonthlyTrend[];

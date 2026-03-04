@@ -187,10 +187,29 @@ class AnalyticsSummary(BaseModel):
     transaction_count: int
     categorized_count: int
     uncategorized_count: int
+    untagged_count: int = 0
     category_spending: list[CategorySpending]
     tag_spending: list[TagSpending] = []
     monthly_trends: list[MonthlyTrend]
     top_keywords: list[KeywordOut]
+
+
+# ── Transaction edit ─────────────────────────────────────────────────────────
+class TransactionUpdate(BaseModel):
+    """Fields that can be safely edited by the user."""
+    transaction_date: Optional[date] = None
+    description: Optional[str] = None
+    debit_amount: Optional[float] = None
+    credit_amount: Optional[float] = None
+    closing_balance: Optional[float] = None
+    value_date: Optional[date] = None
+    cheque_ref_number: Optional[str] = None
+    # Explicit clear flags for nullable fields
+    clear_debit: bool = False
+    clear_credit: bool = False
+    clear_balance: bool = False
+    clear_value_date: bool = False
+    clear_cheque_ref: bool = False
 
 
 # ── Supported formats info ────────────────────────────────────────────────────

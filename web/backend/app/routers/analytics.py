@@ -20,7 +20,7 @@ from ..schemas import (
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
-def _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db, include_uncategorized=False):
+def _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db, include_uncategorized=False, include_untagged=False):
     filters = [Transaction.is_transfer == False]  # Always exclude transfers from analytics
     if date_from:
         filters.append(Transaction.transaction_date >= date_from)
@@ -40,7 +40,29 @@ def _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db, inc
             conditions.append(Transaction.category_id.is_(None))
         if conditions:
             filters.append(or_(*conditions))
-    if tag_ids:
+    tag_id_list = [int(x) for x in tag_ids.split(",") if x.strip()] if tag_ids else []
+    if tag_id_list or include_untagged:
+        from sqlalchemy import or_
+        has_tag_sq = (
+            db.query(transaction_tags.c.transaction_id)
+            .distinct()
+            .subquery()
+        )
+        conditions = []
+        if tag_id_list:
+            tagged_sq = (
+                db.query(transaction_tags.c.transaction_id)
+                .filter(transaction_tags.c.tag_id.in_(tag_id_list))
+                .distinct()
+                .subquery()
+            )
+            conditions.append(Transaction.id.in_(tagged_sq))
+        if include_untagged:
+            conditions.append(~Transaction.id.in_(has_tag_sq))
+        if conditions:
+            filters.append(or_(*conditions))
+    elif tag_ids:
+        # Fallback for old callers passing tag_ids without include_untagged
         ids = [int(x) for x in tag_ids.split(",") if x.strip()]
         if ids:
             tagged_sq = (
@@ -61,11 +83,13 @@ def get_analytics_summary(
     category_ids: Optional[str] = Query(None),
     tag_ids: Optional[str] = Query(None),
     include_uncategorized: Optional[bool] = Query(None),
+    include_untagged: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
 ):
     """Return a full analytics summary for the dashboard."""
     filters = _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db,
-                             include_uncategorized=bool(include_uncategorized))
+                             include_uncategorized=bool(include_uncategorized),
+                             include_untagged=bool(include_untagged))
     base = db.query(Transaction).filter(*filters)
 
     # ── Totals ────────────────────────────────────────────────────────────
@@ -81,7 +105,13 @@ def get_analytics_summary(
     txn_count = totals.count
     categorized = totals.categorized
     uncategorized_count = txn_count - categorized
-
+    # Count untagged transactions in current filtered set
+    has_tag_sq = (
+        db.query(transaction_tags.c.transaction_id)
+        .distinct()
+        .subquery()
+    )
+    untagged_count = base.filter(~Transaction.id.in_(has_tag_sq)).count()
     # ── Category spending breakdown ───────────────────────────────────────
     cat_rows = (
         base.with_entities(
@@ -189,6 +219,7 @@ def get_analytics_summary(
         transaction_count=txn_count,
         categorized_count=categorized,
         uncategorized_count=uncategorized_count,
+        untagged_count=untagged_count,
         category_spending=category_spending,
         tag_spending=tag_spending,
         monthly_trends=monthly_trends,

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
 from ..models import Transaction, Category, Tag, transaction_tags, TransferLink
-from ..schemas import TransactionOut, TransactionListResponse, BulkTransactionCategoryAssign, BulkTransactionTagUpdate, TagOut
+from ..schemas import TransactionOut, TransactionListResponse, BulkTransactionCategoryAssign, BulkTransactionTagUpdate, TagOut, TransactionUpdate
 
 from datetime import date
 from typing import Optional
@@ -41,6 +41,7 @@ def _apply_filters(
     amount_type: Optional[str] = None,
     bank_names: Optional[str] = None,
     category_ids: Optional[str] = None,
+    untagged: Optional[bool] = None,
 ):
 
     if search:
@@ -67,7 +68,11 @@ def _apply_filters(
     elif category_id is not None:
         q = q.filter(Transaction.category_id == category_id)
 
-    if tag_ids:
+    if untagged:
+        # Transactions with NO tags at all
+        has_tag_sq = db.query(transaction_tags.c.transaction_id).distinct().subquery()
+        q = q.filter(~Transaction.id.in_(has_tag_sq))
+    elif tag_ids:
         ids = [int(x) for x in tag_ids.split(",") if x.strip()]
         if ids:
             tagged_sq = (
@@ -116,11 +121,12 @@ def _build_query(
     amount_type: Optional[str] = None,
     bank_names: Optional[str] = None,
     category_ids: Optional[str] = None,
+    untagged: Optional[bool] = None,
 ):
     q = db.query(Transaction).options(selectinload(Transaction.tags))
     return _apply_filters(q, db, search, bank_name, account_type, category_id, uncategorized,
                           tag_ids, date_from, date_to, min_amount, max_amount, amount_type,
-                          bank_names, category_ids)
+                          bank_names, category_ids, untagged)
 
 
 @router.get("/aggregate")
@@ -138,13 +144,14 @@ def get_transaction_aggregate(
     amount_type: Optional[str] = Query(None),
     bank_names: Optional[str] = Query(None),
     category_ids: Optional[str] = Query(None),
+    untagged: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
 ):
     """Return aggregate debit/credit sums for the current filter set."""
     base = db.query(Transaction)
     q = _apply_filters(base, db, search, bank_name, account_type, category_id, uncategorized,
                        tag_ids, date_from, date_to, min_amount, max_amount, amount_type,
-                       bank_names, category_ids)
+                       bank_names, category_ids, untagged)
     result = q.with_entities(
         func.coalesce(func.sum(Transaction.debit_amount), 0).label("debit_sum"),
         func.coalesce(func.sum(Transaction.credit_amount), 0).label("credit_sum"),
@@ -153,6 +160,39 @@ def get_transaction_aggregate(
     debit = float(result.debit_sum)
     credit = float(result.credit_sum)
     return {"debit_sum": debit, "credit_sum": credit, "net": credit - debit, "count": result.count}
+
+
+@router.put("/{transaction_id}")
+def update_transaction_fields(
+    transaction_id: int,
+    body: TransactionUpdate,
+    db: Session = Depends(get_db),
+):
+    """Update editable fields of a single transaction."""
+    txn = db.query(Transaction).options(selectinload(Transaction.tags)).filter(Transaction.id == transaction_id).first()
+    if not txn:
+        raise HTTPException(404, "Transaction not found")
+    if body.transaction_date is not None:
+        txn.transaction_date = body.transaction_date
+    if body.description is not None:
+        txn.description = body.description
+    if body.debit_amount is not None or body.clear_debit:
+        txn.debit_amount = body.debit_amount
+    if body.credit_amount is not None or body.clear_credit:
+        txn.credit_amount = body.credit_amount
+    if body.closing_balance is not None or body.clear_balance:
+        txn.closing_balance = body.closing_balance
+    if body.value_date is not None or body.clear_value_date:
+        txn.value_date = body.value_date
+    if body.cheque_ref_number is not None or body.clear_cheque_ref:
+        txn.cheque_ref_number = body.cheque_ref_number
+    db.commit()
+    db.refresh(txn)
+    t = TransactionOut.model_validate(txn)
+    if txn.category:
+        t.category_name = txn.category.name
+    t.tags = [TagOut.model_validate(tag) for tag in txn.tags]
+    return t
 
 
 @router.get("/{transaction_id}", response_model=TransactionOut)
@@ -183,6 +223,7 @@ def list_transactions(
     amount_type: Optional[str] = Query(None),
     bank_names: Optional[str] = Query(None),
     category_ids: Optional[str] = Query(None),
+    untagged: Optional[bool] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     sort_by: str = Query("transaction_date"),
@@ -191,7 +232,7 @@ def list_transactions(
 ):
     q = _build_query(
         db, search, bank_name, account_type, category_id, uncategorized, tag_ids,
-        date_from, date_to, min_amount, max_amount, amount_type, bank_names, category_ids,
+        date_from, date_to, min_amount, max_amount, amount_type, bank_names, category_ids, untagged,
     )
 
     total = q.count()

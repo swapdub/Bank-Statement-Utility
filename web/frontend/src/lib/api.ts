@@ -129,6 +129,18 @@ export async function getTransactionById(id: number): Promise<import("./types").
   return handleResponse(res);
 }
 
+export async function updateTransaction(
+  id: number,
+  data: Record<string, unknown>
+): Promise<import("./types").Transaction> {
+  const res = await fetch(`${BASE}/transactions/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(res);
+}
+
 // ── Categories ───────────────────────────────────────────────────────────────
 
 export async function getCategories(): Promise<Category[]> {
@@ -300,6 +312,7 @@ export async function getAnalyticsSummary(params?: {
   category_ids?: string;  // comma-separated
   tag_ids?: string;       // comma-separated
   include_uncategorized?: boolean;
+  include_untagged?: boolean;
 }): Promise<AnalyticsSummary> {
   const urlParams = new URLSearchParams();
   if (params) {

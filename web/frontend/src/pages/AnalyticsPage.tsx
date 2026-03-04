@@ -7,7 +7,6 @@ import {
   PieChart as PieIcon,
   BarChart3,
   AlertCircle,
-  ChevronDown,
   Tag as TagIcon,
   Layers,
   Upload,
@@ -33,7 +32,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -41,11 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { MultiSelectFilter } from "@/components/MultiSelectFilter";
 
 import { getAnalyticsSummary, getCategories, getTransactionBanks, getTags } from "@/lib/api";
 import type { AnalyticsSummary, Category, Tag } from "@/lib/types";
@@ -121,11 +115,12 @@ export default function AnalyticsPage() {
       category_ids: filters.categoryIds.length ? filters.categoryIds.join(",") : undefined,
       tag_ids: filters.tagIds.length ? filters.tagIds.join(",") : undefined,
       include_uncategorized: (filters.categoryIds.length > 0 || filters.includeUncategorized) ? filters.includeUncategorized : undefined,
+      include_untagged: (filters.tagIds.length > 0 || filters.includeUntagged) ? filters.includeUntagged : undefined,
     })
       .then(setSummary)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [filters.dateFrom, filters.dateTo, filters.bankName, filters.categoryIds, filters.tagIds, filters.includeUncategorized]);
+  }, [filters.dateFrom, filters.dateTo, filters.bankName, filters.categoryIds, filters.tagIds, filters.includeUncategorized, filters.includeUntagged]);
 
   const applyPreset = (months: number, label: string) => {
     if (months === 0) {
@@ -143,6 +138,7 @@ export default function AnalyticsPage() {
       categoryIds: categoryId !== null ? [categoryId] : [],
       uncategorized: categoryId === null,
       tagIds: tagId ? [tagId] : [],
+      untagged: tagId === null && tagId !== undefined ? false : false,
       dateFrom: filters.dateFrom,
       dateTo: filters.dateTo,
       bankNames: filters.bankName ? [filters.bankName] : [],
@@ -173,8 +169,13 @@ export default function AnalyticsPage() {
       .filter((t) => t.transaction_count > 0)
       .map((t) => t.tag_id)
   );
-  const visibleCategories = categories.filter((c) => activeCategoryIds.has(c.id));
-  const visibleTags = allTags.filter((t) => activeTagIds.has(t.id));
+  const visibleCategories = categories.filter(
+    (c) => activeCategoryIds.has(c.id) || filters.categoryIds.includes(c.id)
+  );
+  const hasUntagged = (summary?.untagged_count ?? 0) > 0;
+  const visibleTags = allTags.filter(
+    (t) => activeTagIds.has(t.id) || filters.tagIds.includes(t.id)
+  );
 
   if (isFirstLoad) {
     return (
@@ -185,7 +186,7 @@ export default function AnalyticsPage() {
   if (!summary || summary.transaction_count === 0) {
     const hasActiveFilters =
       filters.dateFrom || filters.dateTo || filters.bankName ||
-      filters.categoryIds.length > 0 || filters.tagIds.length > 0 || filters.includeUncategorized;
+      filters.categoryIds.length > 0 || filters.tagIds.length > 0 || filters.includeUncategorized || filters.includeUntagged;
     return (
       <div className="space-y-6">
         {/* Still render the filter panel so users can adjust/clear filters */}
@@ -215,8 +216,7 @@ export default function AnalyticsPage() {
                 onChange={(e) => setFilters({ dateTo: e.target.value, preset: "" })} />
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground"
-                  onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], preset: "" })}>
-                  × Clear all filters
+                  onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], includeUntagged: false, preset: "" })}>
                 </Button>
               )}
             </div>
@@ -229,7 +229,7 @@ export default function AnalyticsPage() {
             <>
               <h2 className="text-lg font-semibold">No results for current filters</h2>
               <p className="mb-4 text-sm">Try adjusting your date range or removing filters.</p>
-              <Button variant="outline" onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], preset: "" })}>
+              <Button variant="outline" onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], includeUntagged: false, preset: "" })}>
                 Clear All Filters
               </Button>
             </>
@@ -336,120 +336,49 @@ export default function AnalyticsPage() {
             )}
 
             {(visibleCategories.length > 0 || hasUncategorized) && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
-                    <Layers className="h-3 w-3" />
-                    {filters.categoryIds.length === 0 && !filters.includeUncategorized
-                      ? "All categories"
-                      : `${filters.categoryIds.length + (filters.includeUncategorized ? 1 : 0)} selected`}
-                    <ChevronDown className="h-3 w-3 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-56 p-2" align="start">
-                  <p className="mb-1.5 px-1 text-xs font-semibold text-muted-foreground">
-                    Filter categories (empty = all)
-                  </p>
-                  <div className="mb-1 flex gap-1">
-                    <button
-                      className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                      onClick={() => setFilters({ categoryIds: visibleCategories.map((c) => c.id), includeUncategorized: hasUncategorized })}
-                    >
-                      ✓ All
-                    </button>
-                    {(filters.categoryIds.length > 0 || filters.includeUncategorized) && (
-                      <button
-                        className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                        onClick={() => setFilters({ categoryIds: [], includeUncategorized: false })}
-                      >
-                        × Clear
-                      </button>
-                    )}
-                  </div>
-                  {hasUncategorized && (
-                    <label
-                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
-                    >
-                      <Checkbox
-                        checked={filters.includeUncategorized}
-                        onCheckedChange={() => setFilters({ includeUncategorized: !filters.includeUncategorized })}
-                        className="h-3.5 w-3.5"
-                      />
-                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: "#9ca3af" }} />
-                      Uncategorized
-                    </label>
-                  )}
-                  {visibleCategories.map((c) => (
-                    <label
-                      key={c.id}
-                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
-                    >
-                      <Checkbox
-                        checked={filters.categoryIds.includes(c.id)}
-                        onCheckedChange={() => toggleCategory(c.id)}
-                        className="h-3.5 w-3.5"
-                      />
-                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c.color || "#ccc" }} />
-                      {c.name}
-                    </label>
-                  ))}
-                </PopoverContent>
-              </Popover>
+              <MultiSelectFilter
+                compact
+                allLabel="All categories"
+                icon={<Layers className="h-3 w-3" />}
+                items={visibleCategories.map((c) => ({ id: c.id, label: c.name, color: c.color || "#ccc" }))}
+                selectedIds={filters.categoryIds}
+                onToggle={toggleCategory}
+                onSelectAll={() => setFilters({ categoryIds: visibleCategories.map((c) => c.id), includeUncategorized: hasUncategorized })}
+                onClear={() => setFilters({ categoryIds: [], includeUncategorized: false })}
+                special={hasUncategorized ? {
+                  label: "Uncategorized",
+                  color: "#9ca3af",
+                  count: summary?.uncategorized_count,
+                  checked: filters.includeUncategorized,
+                  onToggle: () => setFilters({ includeUncategorized: !filters.includeUncategorized }),
+                } : undefined}
+              />
             )}
 
-            {visibleTags.length > 0 && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
-                    <TagIcon className="h-3 w-3" />
-                    {filters.tagIds.length === 0
-                      ? "All tags"
-                      : `${filters.tagIds.length} tag${filters.tagIds.length === 1 ? "" : "s"}`}
-                    <ChevronDown className="h-3 w-3 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-52 p-2" align="start">
-                  <p className="mb-1.5 px-1 text-xs font-semibold text-muted-foreground">
-                    Filter tags (empty = all)
-                  </p>
-                  <div className="mb-1 flex gap-1">
-                    <button
-                      className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                      onClick={() => setFilters({ tagIds: visibleTags.map((t) => t.id) })}
-                    >
-                      ✓ All
-                    </button>
-                    {filters.tagIds.length > 0 && (
-                      <button
-                        className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                        onClick={() => setFilters({ tagIds: [] })}
-                      >
-                        × Clear
-                      </button>
-                    )}
-                  </div>
-                  {visibleTags.map((t) => (
-                    <label
-                      key={t.id}
-                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
-                    >
-                      <Checkbox
-                        checked={filters.tagIds.includes(t.id)}
-                        onCheckedChange={() => toggleTag(t.id)}
-                        className="h-3.5 w-3.5"
-                      />
-                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: t.color || "#6366f1" }} />
-                      {t.name}
-                    </label>
-                  ))}
-                </PopoverContent>
-              </Popover>
+            {(visibleTags.length > 0 || hasUntagged) && (
+              <MultiSelectFilter
+                compact
+                allLabel="All tags"
+                icon={<TagIcon className="h-3 w-3" />}
+                items={visibleTags.map((t) => ({ id: t.id, label: t.name, color: t.color || "#6366f1" }))}
+                selectedIds={filters.tagIds}
+                onToggle={toggleTag}
+                onSelectAll={() => setFilters({ tagIds: visibleTags.map((t) => t.id), includeUntagged: hasUntagged })}
+                onClear={() => setFilters({ tagIds: [], includeUntagged: false })}
+                special={hasUntagged ? {
+                  label: "Untagged",
+                  color: "#9ca3af",
+                  count: summary?.untagged_count,
+                  checked: filters.includeUntagged,
+                  onToggle: () => setFilters({ includeUntagged: !filters.includeUntagged }),
+                } : undefined}
+              />
             )}
 
-            {(filters.dateFrom || filters.dateTo || filters.bankName || filters.categoryIds.length > 0 || filters.tagIds.length > 0 || filters.includeUncategorized) && (
+            {(filters.dateFrom || filters.dateTo || filters.bankName || filters.categoryIds.length > 0 || filters.tagIds.length > 0 || filters.includeUncategorized || filters.includeUntagged) && (
               <Button
                 variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground"
-                onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], preset: "" })}
+                onClick={() => setFilters({ dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], includeUntagged: false, preset: "" })}
               >
                 × Clear all
               </Button>

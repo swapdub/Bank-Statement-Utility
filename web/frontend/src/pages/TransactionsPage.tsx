@@ -13,6 +13,8 @@ import {
   Link2,
   Loader2,
   Plus,
+  Unlink2,
+  Pencil,
 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -41,7 +43,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
+
+import { MultiSelectFilter } from "@/components/MultiSelectFilter";
+import { EditTransactionModal } from "@/components/EditTransactionModal";
 
 import {
   getTransactions,
@@ -56,6 +68,7 @@ import {
   getTransferCounts,
   detectTransfers,
   manualLinkTransfer,
+  unlinkTransfer,
 } from "@/lib/api";
 import type { Transaction, TransactionFilters, Category, BankInfo, Tag as TagType, TransferCounts } from "@/lib/types";
 import { formatINR, formatDate } from "@/lib/format";
@@ -78,6 +91,13 @@ export default function TransactionsPage() {
   const [highlightedTxnId, setHighlightedTxnId] = useState<number | null>(null);
   const [aggregate, setAggregate] = useState<{ debit_sum: number; credit_sum: number; net: number; count: number } | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Shift-select tracking
+  const lastClickedIdxRef = useRef<number | null>(null);
+  // Unlink confirmation
+  const [unlinkConfirmLinkId, setUnlinkConfirmLinkId] = useState<number | null>(null);
+  // Edit modal
+  const [editTxn, setEditTxn] = useState<Transaction | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
 
   // Transfer state
   const [transferCounts, setTransferCounts] = useState<TransferCounts>({ suggested: 0, confirmed: 0, denied: 0 });
@@ -97,6 +117,7 @@ export default function TransactionsPage() {
     date_from: ctxFilters.dateFrom || undefined,
     date_to: ctxFilters.dateTo || undefined,
     tag_ids: ctxFilters.tagIds.length ? ctxFilters.tagIds.join(",") : undefined,
+    untagged: ctxFilters.untagged || undefined,
   }));
 
   const [searchInput, setSearchInput] = useState("");
@@ -209,6 +230,14 @@ export default function TransactionsPage() {
       : [...selectedTagIds, id];
     setFilters((prev) => ({ ...prev, tag_ids: next.length ? next.join(",") : undefined, page: 1 }));
   };
+  const setUntaggedFilter = (val: boolean) => {
+    setFilters((prev) => ({
+      ...prev,
+      untagged: val || undefined,
+      tag_ids: val ? undefined : prev.tag_ids,
+      page: 1,
+    }));
+  };
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -217,6 +246,7 @@ export default function TransactionsPage() {
     if (filters.category_id || filters.category_ids) count++;
     if (filters.uncategorized) count++;
     if (filters.tag_ids) count++;
+    if (filters.untagged) count++;
     if (filters.date_from) count++;
     if (filters.date_to) count++;
     if (filters.min_amount) count++;
@@ -231,6 +261,23 @@ export default function TransactionsPage() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+
+  const handleRowCheckboxClick = (e: React.MouseEvent, txnId: number, idx: number) => {
+    if (e.shiftKey && lastClickedIdxRef.current !== null) {
+      const min = Math.min(lastClickedIdxRef.current, idx);
+      const max = Math.max(lastClickedIdxRef.current, idx);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (let i = min; i <= max; i++) {
+          if (transactions[i]) next.add(transactions[i].id);
+        }
+        return next;
+      });
+    } else {
+      toggleSelect(txnId);
+      lastClickedIdxRef.current = idx;
+    }
+  };
 
   const isAllSelected = transactions.length > 0 && selectedIds.size === transactions.length;
   const isSomeSelected = selectedIds.size > 0 && !isAllSelected;
@@ -389,6 +436,18 @@ export default function TransactionsPage() {
     setFilters((prev) => ({ ...prev }));
   };
 
+  const handleConfirmUnlink = async () => {
+    if (!unlinkConfirmLinkId) return;
+    try {
+      await unlinkTransfer(unlinkConfirmLinkId);
+      setUnlinkConfirmLinkId(null);
+      refreshTransfers();
+      toast.success("Transfer unlinked");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to unlink");
+    }
+  };
+
   const handleDetect = async () => {
     setDetecting(true);
     try {
@@ -502,6 +561,33 @@ export default function TransactionsPage() {
         onGoToTransaction={handleGoToTransaction}
       />
 
+      {/* Unlink confirmation dialog */}
+      <Dialog open={unlinkConfirmLinkId !== null} onOpenChange={(o) => !o && setUnlinkConfirmLinkId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Unlink Transfer?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will remove the transfer link between both transactions. They will no longer be excluded from analytics as a transfer. This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUnlinkConfirmLinkId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleConfirmUnlink}>Unlink</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit transaction modal */}
+      <EditTransactionModal
+        transaction={editTxn}
+        open={editModalOpen}
+        onOpenChange={setEditModalOpen}
+        onSaved={(updated) => {
+          setTransactions((prev) => prev.map((t) => t.id === updated.id ? updated : t));
+          toast.success("Transaction updated");
+        }}
+      />
+
       {/* Search bar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px]">
@@ -573,88 +659,43 @@ export default function TransactionsPage() {
           {/* Category multi-select */}
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Category</label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 w-full justify-between text-xs font-normal">
-                  {filters.uncategorized
-                    ? "Uncategorized"
-                    : selectedCategoryIds.length === 0
-                      ? "All Categories"
-                      : `${selectedCategoryIds.length} selected`}
-                  <ChevronDown className="ml-1 h-3 w-3 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-52 p-2 max-h-72 overflow-y-auto" align="start" side="bottom" sideOffset={4}>
-                <div className="mb-1 flex gap-1 sticky top-0 bg-popover z-10">
-                  <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                    onClick={() => setFilters((prev) => ({ ...prev, category_ids: categories.map((c) => c.id).join(","), category_id: undefined, uncategorized: undefined, page: 1 }))}>
-                    ✓ All
-                  </button>
-                  {(selectedCategoryIds.length > 0 || filters.uncategorized) && (
-                    <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                      onClick={() => setFilters((prev) => ({ ...prev, category_ids: undefined, category_id: undefined, uncategorized: undefined, page: 1 }))}>
-                      × Clear
-                    </button>
-                  )}
-                </div>
-                <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
-                  <Checkbox checked={!!filters.uncategorized} onCheckedChange={() => setUncategorizedFilter(!filters.uncategorized)} className="h-3.5 w-3.5" />
-                  <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: "#9ca3af" }} />
-                  Uncategorized
-                </label>
-                {categories.map((c) => (
-                  <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
-                    <Checkbox
-                      checked={selectedCategoryIds.includes(c.id)}
-                      onCheckedChange={() => toggleCategoryFilter(c.id)}
-                      className="h-3.5 w-3.5"
-                      disabled={!!filters.uncategorized}
-                    />
-                    <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c.color || "#ccc" }} />
-                    {c.name}
-                  </label>
-                ))}
-              </PopoverContent>
-            </Popover>
+            <MultiSelectFilter
+              allLabel="All Categories"
+              items={categories.map((c) => ({ id: c.id, label: c.name, color: c.color || "#ccc" }))}
+              selectedIds={selectedCategoryIds}
+              onToggle={toggleCategoryFilter}
+              onSelectAll={() => setFilters((prev) => ({ ...prev, category_ids: categories.map((c) => c.id).join(","), category_id: undefined, uncategorized: undefined, page: 1 }))}
+              onClear={() => setFilters((prev) => ({ ...prev, category_ids: undefined, category_id: undefined, uncategorized: undefined, page: 1 }))}
+              special={{
+                label: "Uncategorized",
+                color: "#9ca3af",
+                checked: !!filters.uncategorized,
+                onToggle: () => setUncategorizedFilter(!filters.uncategorized),
+              }}
+              triggerClassName="w-full"
+              popoverWidth="w-52"
+            />
           </div>
 
           {/* Tag multi-select */}
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Tags</label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 w-full justify-between text-xs font-normal">
-                  {selectedTagIds.length === 0
-                    ? "All Tags"
-                    : `${selectedTagIds.length} tag${selectedTagIds.length > 1 ? "s" : ""}`}
-                  <ChevronDown className="ml-1 h-3 w-3 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-48 p-2" align="start">
-                <div className="mb-1 flex gap-1">
-                  <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                    onClick={() => setFilters((prev) => ({ ...prev, tag_ids: allTags.map((t) => t.id).join(","), page: 1 }))}>
-                    ✓ All
-                  </button>
-                  {selectedTagIds.length > 0 && (
-                    <button className="flex-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-left"
-                      onClick={() => setFilters((prev) => ({ ...prev, tag_ids: undefined, page: 1 }))}>
-                      × Clear
-                    </button>
-                  )}
-                </div>
-                {allTags.map((t) => (
-                  <label key={t.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
-                    <Checkbox checked={selectedTagIds.includes(t.id)} onCheckedChange={() => toggleTagFilter(t.id)} className="h-3.5 w-3.5" />
-                    <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: t.color || "#6366f1" }} />
-                    {t.name}
-                  </label>
-                ))}
-                {allTags.length === 0 && (
-                  <p className="px-2 py-1.5 text-xs text-muted-foreground">No tags yet.</p>
-                )}
-              </PopoverContent>
-            </Popover>
+            <MultiSelectFilter
+              allLabel="All Tags"
+              items={allTags.map((t) => ({ id: t.id, label: t.name, color: t.color || "#6366f1" }))}
+              selectedIds={selectedTagIds}
+              onToggle={toggleTagFilter}
+              onSelectAll={() => setFilters((prev) => ({ ...prev, tag_ids: allTags.map((t) => t.id).join(","), untagged: undefined, page: 1 }))}
+              onClear={() => setFilters((prev) => ({ ...prev, tag_ids: undefined, untagged: undefined, page: 1 }))}
+              special={{
+                label: "Untagged",
+                color: "#9ca3af",
+                checked: !!filters.untagged,
+                onToggle: () => setUntaggedFilter(!filters.untagged),
+              }}
+              triggerClassName="w-full"
+              popoverWidth="w-52"
+            />
           </div>
 
           <div className="space-y-1">
@@ -753,7 +794,7 @@ export default function TransactionsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                transactions.map((txn) => (
+                transactions.map((txn, txnIdx) => (
                   <TableRow
                     key={txn.id}
                     id={`txn-row-${txn.id}`}
@@ -765,13 +806,14 @@ export default function TransactionsPage() {
                     <TableCell className="px-4">
                       <Checkbox
                         checked={selectedIds.has(txn.id)}
-                        onCheckedChange={() => toggleSelect(txn.id)}
+                        onClick={(e: React.MouseEvent) => handleRowCheckboxClick(e, txn.id, txnIdx)}
+                        onCheckedChange={() => {}}
                       />
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm">{formatDate(txn.transaction_date)}</TableCell>
-                    <TableCell className="max-w-[280px] text-sm" title={txn.description}>
+                    <TableCell className="max-w-[280px] text-sm group/desc" title={txn.description}>
                       <div className="flex items-center gap-1.5">
-                        <span className="truncate">{txn.description}</span>
+                        <span className="truncate flex-1">{txn.description}</span>
                         {txn.is_transfer && (
                           <Badge
                             variant="outline"
@@ -782,6 +824,22 @@ export default function TransactionsPage() {
                             <ArrowLeftRight className="h-2.5 w-2.5" /> Transfer
                           </Badge>
                         )}
+                        {txn.is_transfer && txn.transfer_link_id && (
+                          <button
+                            className="shrink-0 opacity-0 group-hover/desc:opacity-100 transition-opacity text-muted-foreground hover:text-destructive p-0.5 rounded"
+                            title="Unlink transfer"
+                            onClick={(e) => { e.stopPropagation(); setUnlinkConfirmLinkId(txn.transfer_link_id); }}
+                          >
+                            <Unlink2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <button
+                          className="shrink-0 opacity-0 group-hover/desc:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-0.5 rounded"
+                          title="Edit transaction"
+                          onClick={(e) => { e.stopPropagation(); setEditTxn(txn); setEditModalOpen(true); }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </TableCell>
                     <TableCell>

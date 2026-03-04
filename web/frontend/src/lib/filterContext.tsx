@@ -14,6 +14,7 @@ export interface AnalyticsFilters {
   categoryIds: number[];   // selected to INCLUDE (empty = all)
   includeUncategorized: boolean; // show uncategorized transactions in analytics
   tagIds: number[];        // selected to INCLUDE (empty = all)
+  includeUntagged: boolean; // show untagged transactions in analytics
   preset: string;          // "1M" | "3M" | "6M" | "1Y" | "2Y" | "5Y" | "all"
 }
 
@@ -23,6 +24,7 @@ export interface TransactionFilters {
   categoryIds: number[];
   uncategorized: boolean;
   tagIds: number[];
+  untagged: boolean;
   dateFrom: string;
   dateTo: string;
   /** Set to "analytics" when the user clicked through from an analytics chart */
@@ -38,10 +40,10 @@ interface FilterContextValue {
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 const defaultAnalytics: AnalyticsFilters = {
-  dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], preset: "all",
+  dateFrom: "", dateTo: "", bankName: "", categoryIds: [], includeUncategorized: false, tagIds: [], includeUntagged: false, preset: "all",
 };
 const defaultTransactions: TransactionFilters = {
-  search: "", bankNames: [], categoryIds: [], uncategorized: false, tagIds: [], dateFrom: "", dateTo: "",
+  search: "", bankNames: [], categoryIds: [], uncategorized: false, tagIds: [], untagged: false, dateFrom: "", dateTo: "",
   fromAnalytics: false,
 };
 
