@@ -11,6 +11,21 @@ from sqlalchemy.orm import relationship
 
 from .database import Base
 
+
+# ── User ──────────────────────────────────────────────────────────────────────
+
+class User(Base):
+    """Application user account."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(150), nullable=False, unique=True)
+    password_hash = Column(String(255), nullable=False)
+    display_name = Column(String(150), nullable=True)
+    is_admin = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 # ── Association table: keyword ↔ tag (M:M) ──────────────────────────────────
 keyword_tags = Table(
     "keyword_tags",
@@ -33,6 +48,7 @@ class UploadSession(Base):
     __tablename__ = "upload_sessions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     filename = Column(String(512), nullable=False)
     bank_name = Column(String(50), nullable=False)
     account_type = Column(String(50), nullable=False)
@@ -41,6 +57,7 @@ class UploadSession(Base):
     status = Column(String(20), default="success")  # success | partial | failed
     error_message = Column(Text, nullable=True)
 
+    user = relationship("User", backref="upload_sessions")
     transactions = relationship("Transaction", back_populates="upload_session", cascade="all, delete-orphan")
 
 
@@ -49,6 +66,7 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     upload_session_id = Column(Integer, ForeignKey("upload_sessions.id", ondelete="CASCADE"), nullable=False)
     bank_name = Column(String(50), nullable=False)
     account_type = Column(String(50), nullable=False)

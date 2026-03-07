@@ -15,6 +15,10 @@ import {
   Plus,
   Unlink2,
   Pencil,
+  Download,
+  FileSpreadsheet,
+  FileJson,
+  FileText,
 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -50,6 +54,14 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 
 import { MultiSelectFilter } from "@/components/MultiSelectFilter";
@@ -69,6 +81,9 @@ import {
   detectTransfers,
   manualLinkTransfer,
   unlinkTransfer,
+  exportCSV,
+  exportXLSX,
+  exportJSON,
 } from "@/lib/api";
 import type { Transaction, TransactionFilters, Category, BankInfo, Tag as TagType, TransferCounts } from "@/lib/types";
 import { formatINR, formatDate } from "@/lib/format";
@@ -510,6 +525,40 @@ export default function TransactionsPage() {
             )}
           </p>
         </div>
+
+        {/* Export dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Download className="mr-2 h-4 w-4" />
+              Export
+              <ChevronDown className="ml-1 h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Current View</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => { exportCSV(filters, false).catch(() => toast.error("Export failed")); }}>
+              <FileText className="mr-2 h-4 w-4" /> CSV
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { exportXLSX(filters, false).catch(() => toast.error("Export failed")); }}>
+              <FileSpreadsheet className="mr-2 h-4 w-4" /> Excel (.xlsx)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { exportJSON(filters, false).catch(() => toast.error("Export failed")); }}>
+              <FileJson className="mr-2 h-4 w-4" /> JSON
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>All Transactions</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => { exportCSV(filters, true).catch(() => toast.error("Export failed")); }}>
+              <FileText className="mr-2 h-4 w-4" /> CSV
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { exportXLSX(filters, true).catch(() => toast.error("Export failed")); }}>
+              <FileSpreadsheet className="mr-2 h-4 w-4" /> Excel (.xlsx)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { exportJSON(filters, true).catch(() => toast.error("Export failed")); }}>
+              <FileJson className="mr-2 h-4 w-4" /> JSON
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Analytics carry-over banner */}

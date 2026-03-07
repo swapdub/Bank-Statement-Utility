@@ -73,9 +73,10 @@ def _score_pair(debit_txn: Transaction, credit_txn: Transaction) -> float:
     return score
 
 
-def detect_transfer_candidates(db: Session) -> int:
+def detect_transfer_candidates(db: Session, user_id: int | None = None) -> int:
     """
-    Scan all transactions and create TransferLink suggestions for likely pairs.
+    Scan transactions and create TransferLink suggestions for likely pairs.
+    If user_id is provided, only scan that user's transactions.
     Returns the number of new suggestions created.
     """
     # Get existing link pairs (any status) to skip
@@ -86,15 +87,17 @@ def detect_transfer_candidates(db: Session) -> int:
         existing_pairs.add(pair)
 
     # Fetch all debit transactions (debit_amount > 0) and credit transactions (credit_amount > 0)
+    base_q = db.query(Transaction)
+    if user_id is not None:
+        base_q = base_q.filter(Transaction.user_id == user_id)
+
     debit_txns = (
-        db.query(Transaction)
-        .filter(Transaction.debit_amount > 0)
+        base_q.filter(Transaction.debit_amount > 0)
         .order_by(Transaction.transaction_date)
         .all()
     )
     credit_txns = (
-        db.query(Transaction)
-        .filter(Transaction.credit_amount > 0)
+        base_q.filter(Transaction.credit_amount > 0)
         .order_by(Transaction.transaction_date)
         .all()
     )

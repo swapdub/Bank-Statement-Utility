@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useState } from "react";
 import {
   Upload,
   TableProperties,
@@ -7,17 +8,34 @@ import {
   Sun,
   Moon,
   Monitor,
+  User,
+  LogOut,
+  KeyRound,
+  Shield,
 } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { useTheme } from "@/lib/theme";
+import { useAuth } from "@/lib/authContext";
+import { changePassword } from "@/lib/api";
+import { toast } from "sonner";
 
 const navItems = [
   { to: "/", icon: Upload, label: "Upload" },
@@ -28,6 +46,40 @@ const navItems = [
 
 export default function Layout() {
   const { theme, resolvedTheme, setTheme } = useTheme();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [oldPwd, setOldPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [pwdLoading, setPwdLoading] = useState(false);
+  const [pwdError, setPwdError] = useState("");
+
+  async function handleChangePassword(e: React.FormEvent) {
+    e.preventDefault();
+    setPwdError("");
+    if (newPwd !== confirmPwd) {
+      setPwdError("New passwords do not match");
+      return;
+    }
+    if (newPwd.length < 4) {
+      setPwdError("Password must be at least 4 characters");
+      return;
+    }
+    setPwdLoading(true);
+    try {
+      await changePassword(oldPwd, newPwd);
+      toast.success("Password changed successfully");
+      setPwdOpen(false);
+      setOldPwd("");
+      setNewPwd("");
+      setConfirmPwd("");
+    } catch (err: unknown) {
+      setPwdError(err instanceof Error ? err.message : "Failed to change password");
+    } finally {
+      setPwdLoading(false);
+    }
+  }
 
   return (
     <TooltipProvider>
@@ -84,6 +136,33 @@ export default function Layout() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* User menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="User menu">
+                  <User className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <div className="px-2 py-1.5 text-sm font-medium">
+                  {user?.display_name || user?.username}
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setPwdOpen(true)}>
+                  <KeyRound className="mr-2 h-4 w-4" /> Change Password
+                </DropdownMenuItem>
+                {user?.is_admin && (
+                  <DropdownMenuItem onClick={() => navigate("/admin")}>
+                    <Shield className="mr-2 h-4 w-4" /> Admin Panel
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={logout}>
+                  <LogOut className="mr-2 h-4 w-4" /> Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
@@ -93,6 +172,56 @@ export default function Layout() {
         </main>
 
         <Toaster richColors position="bottom-right" />
+
+        {/* Change Password Dialog */}
+        <Dialog open={pwdOpen} onOpenChange={(open) => { setPwdOpen(open); if (!open) { setPwdError(""); setOldPwd(""); setNewPwd(""); setConfirmPwd(""); } }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Change Password</DialogTitle>
+              <DialogDescription>Enter your current password and choose a new one.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="old-password">Current Password</Label>
+                <Input
+                  id="old-password"
+                  type="password"
+                  value={oldPwd}
+                  onChange={(e) => setOldPwd(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-password">New Password</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPwd}
+                  onChange={(e) => setNewPwd(e.target.value)}
+                  required
+                  minLength={4}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirm-new-password">Confirm New Password</Label>
+                <Input
+                  id="confirm-new-password"
+                  type="password"
+                  value={confirmPwd}
+                  onChange={(e) => setConfirmPwd(e.target.value)}
+                  required
+                />
+              </div>
+              {pwdError && <p className="text-sm text-destructive">{pwdError}</p>}
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setPwdOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={pwdLoading}>
+                  {pwdLoading ? "Changing…" : "Change Password"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   );

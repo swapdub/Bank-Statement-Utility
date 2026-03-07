@@ -12,10 +12,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import UploadSession, Transaction, Keyword, keyword_tags
+from ..models import UploadSession, Transaction, Keyword, keyword_tags, User
 from ..schemas import UploadResponse, SupportedFormatsResponse, BankInfo
 from ..services.parser_bridge import parse_statement, SUPPORTED_BANKS
 from ..services.keyword_extractor import extract_keywords
+from ..auth import get_current_user
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
@@ -33,6 +34,7 @@ def upload_statement(
     file: UploadFile = File(...),
     bank_name: str = Form(...),
     account_type: str = Form(...),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -61,7 +63,7 @@ def upload_statement(
         raise HTTPException(400, result["error"])
 
     # ── Duplicate detection ───────────────────────────────────────────────────
-    # Build a set of fingerprints from existing transactions for this bank
+    # Build a set of fingerprints from existing transactions for this bank + user
     existing_rows = db.query(
         Transaction.bank_name,
         Transaction.account_type,
@@ -72,6 +74,7 @@ def upload_statement(
     ).filter(
         Transaction.bank_name == bank_name.upper(),
         Transaction.account_type == account_type.capitalize(),
+        Transaction.user_id == user.id,
     ).all()
 
     existing_fps: set[tuple] = {
@@ -101,6 +104,7 @@ def upload_statement(
 
     # Create upload session
     session = UploadSession(
+        user_id=user.id,
         filename=file.filename or "unknown",
         bank_name=bank_name.upper(),
         account_type=account_type.capitalize(),
@@ -114,6 +118,7 @@ def upload_statement(
     # Insert transactions
     for rec in new_records:
         txn = Transaction(
+            user_id=user.id,
             upload_session_id=session.id,
             bank_name=rec["bank_name"],
             account_type=rec["account_type"],

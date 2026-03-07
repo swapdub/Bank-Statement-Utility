@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_db, SessionLocal
 from .models import seed_default_categories
-from .routers import upload, transactions, categories, tags, keywords, analytics, transfers
+from .routers import upload, transactions, categories, tags, keywords, analytics, transfers, auth, export
 
 
 @asynccontextmanager
@@ -41,6 +41,7 @@ app.add_middleware(
 )
 
 # Mount routers
+app.include_router(auth.router)
 app.include_router(upload.router)
 app.include_router(transactions.router)
 app.include_router(categories.router)
@@ -48,6 +49,7 @@ app.include_router(tags.router)
 app.include_router(keywords.router)
 app.include_router(analytics.router)
 app.include_router(transfers.router)
+app.include_router(export.router)
 
 
 @app.get("/api/health")

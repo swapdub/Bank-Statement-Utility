@@ -11,9 +11,10 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Transaction, TransferLink, Category
+from ..models import Transaction, TransferLink, Category, User
 from ..schemas import TransferLinkOut, ManualLinkRequest
 from ..services.transfer_detector import detect_transfer_candidates
+from ..auth import get_current_user
 
 router = APIRouter(prefix="/api/transfers", tags=["transfers"])
 
@@ -41,63 +42,58 @@ def _set_transfer_flags(db: Session, txn_ids: list[int], is_transfer: bool, auto
 # ── Detection ─────────────────────────────────────────────────────────────────
 
 @router.post("/detect")
-def run_detection(db: Session = Depends(get_db)):
-    """Scan all transactions and create new transfer suggestions."""
-    count = detect_transfer_candidates(db)
+def run_detection(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Scan current user's transactions and create new transfer suggestions."""
+    count = detect_transfer_candidates(db, user_id=user.id)
     return {"status": "ok", "new_suggestions": count}
 
 
 # ── List suggestions / denied ─────────────────────────────────────────────────
 
-@router.get("/suggestions", response_model=list[TransferLinkOut])
-def list_suggestions(db: Session = Depends(get_db)):
-    """Return all pending (suggested) transfer links."""
-    links = (
+def _user_transfer_query(db: Session, user_id: int, status_filter: str):
+    """Return transfer links where the debit transaction belongs to this user."""
+    return (
         db.query(TransferLink)
-        .filter(TransferLink.status == "suggested")
-        .order_by(TransferLink.confidence.desc())
-        .all()
+        .join(Transaction, Transaction.id == TransferLink.debit_txn_id)
+        .filter(Transaction.user_id == user_id, TransferLink.status == status_filter)
     )
+
+
+@router.get("/suggestions", response_model=list[TransferLinkOut])
+def list_suggestions(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return all pending (suggested) transfer links."""
+    links = _user_transfer_query(db, user.id, "suggested").order_by(TransferLink.confidence.desc()).all()
     return links
 
 
 @router.get("/confirmed", response_model=list[TransferLinkOut])
-def list_confirmed(db: Session = Depends(get_db)):
+def list_confirmed(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return all confirmed transfer links."""
-    links = (
-        db.query(TransferLink)
-        .filter(TransferLink.status == "confirmed")
-        .order_by(TransferLink.confirmed_at.desc())
-        .all()
-    )
+    links = _user_transfer_query(db, user.id, "confirmed").order_by(TransferLink.confirmed_at.desc()).all()
     return links
 
 
 @router.get("/denied", response_model=list[TransferLinkOut])
-def list_denied(db: Session = Depends(get_db)):
+def list_denied(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return all denied transfer links (for recovery UI)."""
-    links = (
-        db.query(TransferLink)
-        .filter(TransferLink.status == "denied")
-        .order_by(TransferLink.created_at.desc())
-        .all()
-    )
+    links = _user_transfer_query(db, user.id, "denied").order_by(TransferLink.created_at.desc()).all()
     return links
 
 
 @router.get("/count")
-def transfer_counts(db: Session = Depends(get_db)):
+def transfer_counts(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Quick counts for badge display."""
-    suggested = db.query(TransferLink).filter(TransferLink.status == "suggested").count()
-    confirmed = db.query(TransferLink).filter(TransferLink.status == "confirmed").count()
-    denied = db.query(TransferLink).filter(TransferLink.status == "denied").count()
+    base = db.query(TransferLink).join(Transaction, Transaction.id == TransferLink.debit_txn_id).filter(Transaction.user_id == user.id)
+    suggested = base.filter(TransferLink.status == "suggested").count()
+    confirmed = base.filter(TransferLink.status == "confirmed").count()
+    denied = base.filter(TransferLink.status == "denied").count()
     return {"suggested": suggested, "confirmed": confirmed, "denied": denied}
 
 
 # ── Actions on individual links ──────────────────────────────────────────────
 
 @router.post("/{link_id}/confirm")
-def confirm_link(link_id: int, db: Session = Depends(get_db)):
+def confirm_link(link_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Confirm a suggested transfer link."""
     link = db.query(TransferLink).get(link_id)
     if not link:
@@ -113,7 +109,7 @@ def confirm_link(link_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{link_id}/deny")
-def deny_link(link_id: int, db: Session = Depends(get_db)):
+def deny_link(link_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Deny a suggested transfer link (hide it)."""
     link = db.query(TransferLink).get(link_id)
     if not link:
@@ -129,7 +125,7 @@ def deny_link(link_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{link_id}/restore")
-def restore_link(link_id: int, db: Session = Depends(get_db)):
+def restore_link(link_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Restore a denied link back to suggested (misclick recovery)."""
     link = db.query(TransferLink).get(link_id)
     if not link:
@@ -143,7 +139,7 @@ def restore_link(link_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{link_id}/unlink")
-def unlink(link_id: int, db: Session = Depends(get_db)):
+def unlink(link_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Remove a confirmed transfer link entirely."""
     link = db.query(TransferLink).get(link_id)
     if not link:
@@ -158,10 +154,14 @@ def unlink(link_id: int, db: Session = Depends(get_db)):
 # ── Manual linking ────────────────────────────────────────────────────────────
 
 @router.post("/link", response_model=TransferLinkOut)
-def manual_link(body: ManualLinkRequest, db: Session = Depends(get_db)):
+def manual_link(body: ManualLinkRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Manually link two transactions as a transfer pair."""
-    debit_txn = db.query(Transaction).get(body.debit_txn_id)
-    credit_txn = db.query(Transaction).get(body.credit_txn_id)
+    debit_txn = db.query(Transaction).filter(
+        Transaction.id == body.debit_txn_id, Transaction.user_id == user.id
+    ).first()
+    credit_txn = db.query(Transaction).filter(
+        Transaction.id == body.credit_txn_id, Transaction.user_id == user.id
+    ).first()
     if not debit_txn or not credit_txn:
         raise HTTPException(404, "One or both transactions not found")
 

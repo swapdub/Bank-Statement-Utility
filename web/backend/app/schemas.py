@@ -256,3 +256,48 @@ class TransferLinkOut(BaseModel):
 class ManualLinkRequest(BaseModel):
     debit_txn_id: int
     credit_txn_id: int
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+class UserRegister(BaseModel):
+    username: str = Field(..., min_length=3, max_length=150)
+    password: str = Field(..., min_length=4)
+    display_name: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    display_name: Optional[str] = None
+    is_admin: bool
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str = Field(..., min_length=4)
+
+
+class AdminPasswordReset(BaseModel):
+    new_password: str = Field(..., min_length=4)
+
+
+# ── Export ─────────────────────────────────────────────────────────────────────
+
+class ExportRequest(BaseModel):
+    """Mirrors TransactionFilters but for export. export_all ignores filters."""
+    export_all: bool = False

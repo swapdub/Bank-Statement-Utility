@@ -53,3 +53,31 @@ def _apply_migrations():
                 conn.execute(text(
                     "ALTER TABLE transactions ADD COLUMN is_transfer BOOLEAN NOT NULL DEFAULT 0"
                 ))
+
+    # Migration: add user_id columns for multi-user support
+    if "upload_sessions" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("upload_sessions")}
+        if "user_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE upload_sessions ADD COLUMN user_id INTEGER REFERENCES users(id)"
+                ))
+
+    if "transactions" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("transactions")}
+        if "user_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE transactions ADD COLUMN user_id INTEGER REFERENCES users(id)"
+                ))
+
+
+def assign_orphan_data_to_user(user_id: int):
+    """Assign any existing data with no user_id to the given user (first-user migration)."""
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE upload_sessions SET user_id = :uid WHERE user_id IS NULL"
+        ), {"uid": user_id})
+        conn.execute(text(
+            "UPDATE transactions SET user_id = :uid WHERE user_id IS NULL"
+        ), {"uid": user_id})

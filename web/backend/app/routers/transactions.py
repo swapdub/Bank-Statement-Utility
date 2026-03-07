@@ -9,8 +9,9 @@ from sqlalchemy import or_, func, case
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
-from ..models import Transaction, Category, Tag, transaction_tags, TransferLink
+from ..models import Transaction, Category, Tag, transaction_tags, TransferLink, User
 from ..schemas import TransactionOut, TransactionListResponse, BulkTransactionCategoryAssign, BulkTransactionTagUpdate, TagOut, TransactionUpdate
+from ..auth import get_current_user
 
 from datetime import date
 from typing import Optional
@@ -19,9 +20,14 @@ router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 
 @router.get("/banks")
-def get_banks(db: Session = Depends(get_db)):
+def get_banks(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return distinct bank names present in the transactions table."""
-    rows = db.query(Transaction.bank_name).distinct().filter(Transaction.bank_name.isnot(None)).all()
+    rows = (
+        db.query(Transaction.bank_name)
+        .distinct()
+        .filter(Transaction.bank_name.isnot(None), Transaction.user_id == user.id)
+        .all()
+    )
     return [r[0] for r in rows if r[0]]
 
 
@@ -42,7 +48,11 @@ def _apply_filters(
     bank_names: Optional[str] = None,
     category_ids: Optional[str] = None,
     untagged: Optional[bool] = None,
+    user_id: Optional[int] = None,
 ):
+
+    if user_id is not None:
+        q = q.filter(Transaction.user_id == user_id)
 
     if search:
         q = q.filter(Transaction.description.ilike(f"%{search}%"))
@@ -122,11 +132,12 @@ def _build_query(
     bank_names: Optional[str] = None,
     category_ids: Optional[str] = None,
     untagged: Optional[bool] = None,
+    user_id: Optional[int] = None,
 ):
     q = db.query(Transaction).options(selectinload(Transaction.tags))
     return _apply_filters(q, db, search, bank_name, account_type, category_id, uncategorized,
                           tag_ids, date_from, date_to, min_amount, max_amount, amount_type,
-                          bank_names, category_ids, untagged)
+                          bank_names, category_ids, untagged, user_id=user_id)
 
 
 @router.get("/aggregate")
@@ -145,13 +156,14 @@ def get_transaction_aggregate(
     bank_names: Optional[str] = Query(None),
     category_ids: Optional[str] = Query(None),
     untagged: Optional[bool] = Query(None),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Return aggregate debit/credit sums for the current filter set."""
     base = db.query(Transaction)
     q = _apply_filters(base, db, search, bank_name, account_type, category_id, uncategorized,
                        tag_ids, date_from, date_to, min_amount, max_amount, amount_type,
-                       bank_names, category_ids, untagged)
+                       bank_names, category_ids, untagged, user_id=user.id)
     result = q.with_entities(
         func.coalesce(func.sum(Transaction.debit_amount), 0).label("debit_sum"),
         func.coalesce(func.sum(Transaction.credit_amount), 0).label("credit_sum"),
@@ -166,10 +178,13 @@ def get_transaction_aggregate(
 def update_transaction_fields(
     transaction_id: int,
     body: TransactionUpdate,
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Update editable fields of a single transaction."""
-    txn = db.query(Transaction).options(selectinload(Transaction.tags)).filter(Transaction.id == transaction_id).first()
+    txn = db.query(Transaction).options(selectinload(Transaction.tags)).filter(
+        Transaction.id == transaction_id, Transaction.user_id == user.id
+    ).first()
     if not txn:
         raise HTTPException(404, "Transaction not found")
     if body.transaction_date is not None:
@@ -196,9 +211,11 @@ def update_transaction_fields(
 
 
 @router.get("/{transaction_id}", response_model=TransactionOut)
-def get_transaction(transaction_id: int, db: Session = Depends(get_db)):
+def get_transaction(transaction_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return a single transaction by ID."""
-    txn = db.query(Transaction).options(selectinload(Transaction.tags)).filter(Transaction.id == transaction_id).first()
+    txn = db.query(Transaction).options(selectinload(Transaction.tags)).filter(
+        Transaction.id == transaction_id, Transaction.user_id == user.id
+    ).first()
     if not txn:
         raise HTTPException(404, "Transaction not found")
     t = TransactionOut.model_validate(txn)
@@ -228,11 +245,13 @@ def list_transactions(
     page_size: int = Query(50, ge=1, le=500),
     sort_by: str = Query("transaction_date"),
     sort_order: str = Query("desc"),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     q = _build_query(
         db, search, bank_name, account_type, category_id, uncategorized, tag_ids,
         date_from, date_to, min_amount, max_amount, amount_type, bank_names, category_ids, untagged,
+        user_id=user.id,
     )
 
     total = q.count()
@@ -287,10 +306,14 @@ def list_transactions(
 @router.put("/bulk/category")
 def bulk_set_transaction_category(
     body: BulkTransactionCategoryAssign,
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Assign a category to multiple transactions at once."""
-    db.query(Transaction).filter(Transaction.id.in_(body.transaction_ids)).update(
+    db.query(Transaction).filter(
+        Transaction.id.in_(body.transaction_ids),
+        Transaction.user_id == user.id,
+    ).update(
         {"category_id": body.category_id}, synchronize_session="fetch"
     )
     db.commit()
@@ -301,10 +324,13 @@ def bulk_set_transaction_category(
 def set_transaction_category(
     transaction_id: int,
     category_id: Optional[int] = Query(None),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Manually override the category for a single transaction."""
-    txn = db.query(Transaction).get(transaction_id)
+    txn = db.query(Transaction).filter(
+        Transaction.id == transaction_id, Transaction.user_id == user.id
+    ).first()
     if not txn:
         raise HTTPException(404, "Transaction not found")
     txn.category_id = category_id
@@ -313,10 +339,15 @@ def set_transaction_category(
 
 
 @router.put("/bulk/tags")
-def bulk_update_transaction_tags(body: BulkTransactionTagUpdate, db: Session = Depends(get_db)):
+def bulk_update_transaction_tags(
+    body: BulkTransactionTagUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Add or remove tags from multiple transactions at once."""
     txns = db.query(Transaction).options(selectinload(Transaction.tags)).filter(
-        Transaction.id.in_(body.transaction_ids)
+        Transaction.id.in_(body.transaction_ids),
+        Transaction.user_id == user.id,
     ).all()
 
     add_tags = db.query(Tag).filter(Tag.id.in_(body.add_tag_ids)).all() if body.add_tag_ids else []
@@ -338,10 +369,13 @@ def bulk_update_transaction_tags(body: BulkTransactionTagUpdate, db: Session = D
 def update_transaction_tags(
     transaction_id: int,
     body: BulkTransactionTagUpdate,
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Add or remove tags from a single transaction."""
-    txn = db.query(Transaction).options(selectinload(Transaction.tags)).get(transaction_id)
+    txn = db.query(Transaction).options(selectinload(Transaction.tags)).filter(
+        Transaction.id == transaction_id, Transaction.user_id == user.id
+    ).first()
     if not txn:
         raise HTTPException(404, "Transaction not found")
 

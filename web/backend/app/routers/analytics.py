@@ -12,16 +12,19 @@ from datetime import date
 from typing import Optional
 
 from ..database import get_db
-from ..models import Transaction, Category, Keyword, Tag, transaction_tags
+from ..models import Transaction, Category, Keyword, Tag, transaction_tags, User
 from ..schemas import (
     AnalyticsSummary, CategorySpending, TagSpending, MonthlyTrend, KeywordOut, TagOut,
 )
+from ..auth import get_current_user
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
-def _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db, include_uncategorized=False, include_untagged=False):
+def _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db, include_uncategorized=False, include_untagged=False, user_id=None):
     filters = [Transaction.is_transfer == False]  # Always exclude transfers from analytics
+    if user_id is not None:
+        filters.append(Transaction.user_id == user_id)
     if date_from:
         filters.append(Transaction.transaction_date >= date_from)
     if date_to:
@@ -84,12 +87,14 @@ def get_analytics_summary(
     tag_ids: Optional[str] = Query(None),
     include_uncategorized: Optional[bool] = Query(None),
     include_untagged: Optional[bool] = Query(None),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Return a full analytics summary for the dashboard."""
     filters = _build_filters(date_from, date_to, bank_name, category_ids, tag_ids, db,
                              include_uncategorized=bool(include_uncategorized),
-                             include_untagged=bool(include_untagged))
+                             include_untagged=bool(include_untagged),
+                             user_id=user.id)
     base = db.query(Transaction).filter(*filters)
 
     # ── Totals ────────────────────────────────────────────────────────────

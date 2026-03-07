@@ -9,12 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Keyword, Tag, Transaction, keyword_tags, transaction_tags
+from ..models import Keyword, Tag, Transaction, keyword_tags, transaction_tags, User
 from ..schemas import (
     KeywordOut, KeywordCreate, KeywordCategoryAssign,
     BulkKeywordTagUpdate, BulkKeywordCategoryAssign, TagOut,
 )
 from ..services.keyword_extractor import match_transaction_keywords
+from ..auth import get_current_user
 
 from typing import Optional
 
@@ -141,9 +142,9 @@ def assign_category(keyword_id: int, body: KeywordCategoryAssign, db: Session = 
 # ── Apply keyword→category mappings to transactions ──────────────────────────
 
 @router.post("/apply-categories")
-def apply_keyword_categories(db: Session = Depends(get_db)):
+def apply_keyword_categories(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    Re-scan all transactions, assign categories, and inherit tags from matched keywords.
+    Re-scan current user's transactions, assign categories, and inherit tags from matched keywords.
     """
     # Get all non-noise keywords that have a category
     all_kws = (
@@ -169,7 +170,7 @@ def apply_keyword_categories(db: Session = Depends(get_db)):
     # Pre-load all Tag objects for efficient lookup
     tag_lookup: dict[int, Tag] = {t.id: t for t in db.query(Tag).all()}
 
-    transactions = db.query(Transaction).all()
+    transactions = db.query(Transaction).filter(Transaction.user_id == user.id).all()
     updated = 0
     conflicts = 0
 
