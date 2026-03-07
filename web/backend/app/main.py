@@ -1,6 +1,11 @@
+
 """
 FastAPI application entry point.
 """
+
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -32,9 +37,23 @@ app = FastAPI(
 )
 
 # CORS — allow the React dev server
+# Accept FRONTEND_PORTS as comma-separated ports (e.g. "5173,3000") or full URLs
+frontend_ports = os.getenv("FRONTEND_PORTS", "5173").split(",")
+frontend_ports = [p.strip() for p in frontend_ports if p.strip()]
+allowed_origins = set()
+for p in frontend_ports:
+    if p.isdigit():
+        allowed_origins.add(f"http://localhost:{p}")
+        allowed_origins.add(f"http://127.0.0.1:{p}")
+    elif p.startswith("http://") or p.startswith("https://"):
+        allowed_origins.add(p)
+    else:
+        # fallback: treat as port
+        allowed_origins.add(f"http://localhost:{p}")
+        allowed_origins.add(f"http://127.0.0.1:{p}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
+    allow_origins=list(allowed_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

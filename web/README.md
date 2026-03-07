@@ -51,8 +51,19 @@ web/
 This will:
 1. Create a Python venv and install backend deps
 2. Install the parent `bank_statement_utility` package
-3. Start the FastAPI server on **http://localhost:8000**
-4. Install frontend deps and start Vite on **http://localhost:5173**
+3. Start the FastAPI server (default: http://localhost:8000, configurable via BACKEND_PORT)
+4. Install frontend deps and start Vite (default: http://localhost:5173, configurable via FRONTEND_PORT)
+## Configuration
+
+You can configure all ports in a single place: `web/.env`.
+
+- `BACKEND_PORT`: Port for FastAPI backend (default: 8000)
+- `FRONTEND_PORT`: Port for Vite frontend (default: 5173)
+- `FRONTEND_PORTS`: Comma-separated list of allowed frontend ports or full URLs for backend CORS (default: 5173)
+
+You only need to edit `web/.env`. The startup script will automatically generate the correct `frontend/.env` for you. Do not manually edit `frontend/.env` or `backend/.env` for ports.
+
+See `.env.example` in `web/` for usage.
 
 ### Option 2: Manual startup
 

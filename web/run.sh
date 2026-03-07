@@ -7,10 +7,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 BACKEND_DIR="$SCRIPT_DIR/backend"
 FRONTEND_DIR="$SCRIPT_DIR/frontend"
 
-# ── Backend ──────────────────────────────────────────────────────
+# Allow port override via env (set these in web/.env or export before running)
+BACKEND_PORT="${BACKEND_PORT:-8000}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+
+# ── Backend ─────────────────────────────────────────────────────
 echo "🔧 Setting up backend..."
 
 if [ ! -d "$BACKEND_DIR/.venv" ]; then
@@ -23,14 +28,20 @@ source "$BACKEND_DIR/.venv/bin/activate"
 echo "Installing backend dependencies..."
 pip install -q -r "$BACKEND_DIR/requirements.txt"
 
-echo "Starting backend on http://localhost:8000 ..."
+echo "Starting backend on http://localhost:$BACKEND_PORT ..."
 cd "$BACKEND_DIR"
-uvicorn app.main:app --reload --port 8000 &
+uvicorn app.main:app --reload --port "$BACKEND_PORT" &
 BACKEND_PID=$!
 
 # ── Frontend ─────────────────────────────────────────────────────
 echo ""
 echo "🔧 Setting up frontend..."
+
+# Generate frontend/.env with correct ports from this single source of truth
+cat > "$FRONTEND_DIR/.env" <<EOF
+VITE_API_PORT=$BACKEND_PORT
+VITE_DEV_PORT=$FRONTEND_PORT
+EOF
 
 cd "$FRONTEND_DIR"
 if [ ! -d "node_modules" ]; then
@@ -38,8 +49,8 @@ if [ ! -d "node_modules" ]; then
   npm install
 fi
 
-echo "Starting frontend on http://localhost:5173 ..."
-npm run dev &
+echo "Starting frontend on http://localhost:$FRONTEND_PORT ..."
+npm run dev -- --port "$FRONTEND_PORT" &
 FRONTEND_PID=$!
 
 # ── Cleanup on exit ──────────────────────────────────────────────
@@ -54,9 +65,9 @@ trap cleanup EXIT
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  ✅ Expense Analyzer is running!"
-echo "  Frontend:  http://localhost:5173"
-echo "  Backend:   http://localhost:8000"
-echo "  API Docs:  http://localhost:8000/docs"
+echo "  Frontend:  http://localhost:$FRONTEND_PORT"
+echo "  Backend:   http://localhost:$BACKEND_PORT"
+echo "  API Docs:  http://localhost:$BACKEND_PORT/docs"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Press Ctrl+C to stop."
 echo ""
