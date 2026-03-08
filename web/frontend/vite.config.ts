@@ -9,6 +9,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const apiPort = env.VITE_API_PORT || "8000";
   const devPort = env.VITE_DEV_PORT || 5173;
+  // Allow setting allowed hosts from env (comma-separated)
+  const allowedHosts = env.VITE_ALLOWED_HOSTS
+    ? env.VITE_ALLOWED_HOSTS.split(",").map(h => h.trim()).filter(Boolean)
+    : undefined;
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -26,6 +30,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
         },
       },
+      ...(allowedHosts ? { allowedHosts } : {}),
     },
   };
 });
