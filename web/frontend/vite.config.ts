@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      host: true,            // Listen on 0.0.0.0 so server is reachable on the network
       port: Number(devPort), // Set dev server port from env or default 5173
       proxy: {
         "/api": {

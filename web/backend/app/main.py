@@ -36,25 +36,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow the React dev server
-# Accept FRONTEND_PORTS as comma-separated ports (e.g. "5173,3000") or full URLs
-frontend_ports = os.getenv("FRONTEND_PORTS", "5173").split(",")
-frontend_ports = [p.strip() for p in frontend_ports if p.strip()]
-allowed_origins = set()
-for p in frontend_ports:
-    if p.isdigit():
-        allowed_origins.add(f"http://localhost:{p}")
-        allowed_origins.add(f"http://127.0.0.1:{p}")
-    elif p.startswith("http://") or p.startswith("https://"):
-        allowed_origins.add(p)
-    else:
-        # fallback: treat as port
-        allowed_origins.add(f"http://localhost:{p}")
-        allowed_origins.add(f"http://127.0.0.1:{p}")
+# CORS — open for self-hosting; restrict ALLOWED_ORIGINS in .env for stricter setups
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(allowed_origins),
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

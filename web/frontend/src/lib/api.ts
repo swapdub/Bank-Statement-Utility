@@ -1,5 +1,9 @@
 /**
- * API client — all calls go through Vite's proxy (/api → localhost:8000).
+ * API client.
+ * In dev: calls go through Vite's proxy (/api → localhost:<VITE_API_PORT>).
+ * In production: set VITE_API_BASE_URL to the backend's externally-accessible URL
+ *   e.g. VITE_API_BASE_URL=http://192.168.1.100:8000
+ * In Docker: leave VITE_API_BASE_URL empty — nginx proxies /api to the backend.
  */
 
 import type {
@@ -16,7 +20,7 @@ import type {
 } from "./types";
 import { getAuthHeaders } from "./authContext";
 
-const BASE = "/api";
+const BASE = `${import.meta.env.VITE_API_BASE_URL ?? ""}/api`;
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return { ...getAuthHeaders(), ...extra };
